@@ -5,7 +5,7 @@
 ## 功能
 
 - **左右分割面板**：左邊 Markdown 編輯器（CodeMirror 6 語法高亮），右邊即時心智圖
-- **下載**：互動 HTML（離線可開）／ SVG ／ PNG ／ JPG
+- **下載**：Markdown 原始檔 ／ 互動 HTML（離線可開）／ SVG ／ PNG ／ JPG
 - **上傳**：拖曳或點選 `.md` / `.markdown` / `.txt` 檔案載入
 - **可分享連結**：把 Markdown 編碼進 URL hash，貼連結即可分享內容（不經任何伺服器）
 - **深色模式**：跟隨系統 / 手動切換 / 記住偏好

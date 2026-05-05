@@ -13,6 +13,12 @@ import { STANDALONE_TEMPLATE } from './standalone-template.js';
 const transformer = new Transformer();
 
 export const downloads = {
+  md(content) {
+    const title = extractTitle(content) || 'Mindmap';
+    saveBlob(new Blob([content ?? ''], { type: 'text/markdown;charset=utf-8' }), `${slug(title)}.md`);
+    return title;
+  },
+
   html(md) {
     const { root } = transformer.transform(md ?? '');
     const title = extractTitle(md) || 'Mindmap';

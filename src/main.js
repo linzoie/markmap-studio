@@ -95,6 +95,16 @@ document.getElementById('btn-share').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('btn-md').addEventListener('click', () => {
+  try {
+    const title = downloads.md(editor.getContent());
+    showToast(`已下載 Markdown（${title}.md）`, { type: 'ok' });
+  } catch (err) {
+    console.error(err);
+    showToast('下載 Markdown 失敗', { type: 'err' });
+  }
+});
+
 document.getElementById('btn-html').addEventListener('click', () => {
   try {
     const title = downloads.html(editor.getContent());
