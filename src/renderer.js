@@ -22,48 +22,45 @@ const KATEX_DELIMITERS = [
   { left: '$',  right: '$',  display: false },
 ];
 
-// Markmap-lib doesn't propagate the fenced-code language hint through
-// to the rendered <code> element (probably stripped during the
-// HTML → tree → render pipeline). We monkey-patch the markdown-it
-// fence rule to explicitly inject `class="language-X"` AND a
-// `data-language="X"` attribute so the post-process pass can recover
-// the language even if classes get stripped downstream.
-function patchFenceRenderer(transformer) {
-  const md = transformer?.md;
-  if (!md?.renderer?.rules) return;
-  const origFence = md.renderer.rules.fence;
-  md.renderer.rules.fence = function (tokens, idx, options, env, self) {
-    const token = tokens[idx];
-    const info = token.info ? String(token.info).trim() : '';
-    const lang = info.split(/\s+/g)[0];
-    if (lang) {
-      const klass = `language-${lang}`;
-      const existing = token.attrGet('class') || '';
-      if (!existing.includes(klass)) {
-        token.attrJoin('class', klass);
-      }
-      token.attrSet('data-language', lang);
+// Walk the raw Markdown to extract the language hint of every fenced
+// code block, in document order. We use this to recover language info
+// that markmap's HTML→tree pipeline drops by the time it reaches the
+// rendered <code> element.
+function extractFencedLangs(md) {
+  if (!md) return [];
+  const langs = [];
+  let inFence = false;
+  let fenceMarker = null; // ``` or ~~~
+  for (const line of md.split(/\r?\n/)) {
+    const m = line.match(/^[ \t]*(```+|~~~+)\s*([^\s`~]*)/);
+    if (!m) continue;
+    if (!inFence) {
+      inFence = true;
+      fenceMarker = m[1][0]; // remember which marker opened it
+      langs.push((m[2] || '').toLowerCase());
+    } else if (m[1][0] === fenceMarker) {
+      inFence = false;
+      fenceMarker = null;
     }
-    return origFence
-      ? origFence(tokens, idx, options, env, self)
-      : self.renderToken(tokens, idx, options);
-  };
+  }
+  return langs;
 }
 
 export function initRenderer({ svg, host }) {
   const svgEl = typeof svg === 'string' ? document.querySelector(svg) : svg;
   const hostEl = typeof host === 'string' ? document.querySelector(host) : host;
   const transformer = new Transformer();
-  patchFenceRenderer(transformer);
 
   let mm = null;
   let lastRoot = null;
   let lastFrontmatter = null;
+  let lastFencedLangs = [];
   let toolbarMounted = false;
 
   function update(md) {
     const { root, frontmatter } = transformer.transform(md ?? '');
     lastRoot = root;
+    lastFencedLangs = extractFencedLangs(md);
     const newFrontmatter = JSON.stringify(frontmatter?.markmap ?? {});
 
     if (!mm || newFrontmatter !== lastFrontmatter) {
@@ -136,19 +133,32 @@ export function initRenderer({ svg, host }) {
       });
     }
 
-    // Prism — query every <code> in the SVG and recover the language
-    // from either the class (`language-X`), data attribute, or the
-    // parent <pre>. Then call highlightElement directly. This works
-    // around: (a) markmap stripping the class during render, (b)
-    // highlightAllUnder failing across the SVG namespace boundary.
+    // Prism — match each rendered <pre> with the corresponding fenced
+    // code block from the source Markdown (lastFencedLangs is in
+    // document order). This is the most reliable way to recover the
+    // language since markmap strips the class server-side and we
+    // can't easily monkey-patch its internal markdown-it.
     if (window.Prism && window.Prism.highlightElement) {
-      const codes = svgEl.querySelectorAll('code');
-      codes.forEach((code) => {
+      const pres = svgEl.querySelectorAll('pre');
+      let langIdx = 0;
+      pres.forEach((pre) => {
         try {
-          if (code.dataset.markmapPrismDone === '1') return;
+          // Ensure there's a <code> child to highlight (markmap usually
+          // wraps but we're defensive).
+          let code = pre.querySelector('code');
+          if (!code) {
+            code = document.createElement('code');
+            while (pre.firstChild) code.appendChild(pre.firstChild);
+            pre.appendChild(code);
+          }
+          if (code.dataset.markmapPrismDone === '1') {
+            langIdx += 1;
+            return;
+          }
 
-          let lang = pickLang(code) || pickLang(code.parentElement);
-          if (!lang) return; // no language hint anywhere — leave it plain
+          const lang = lastFencedLangs[langIdx] || pickLang(code) || pickLang(pre);
+          langIdx += 1;
+          if (!lang) return;
 
           const klass = `language-${lang}`;
           if (!code.className.includes(klass)) {
