@@ -159,11 +159,17 @@ body.resizing * { user-select: none !important; }
 :root.dark #preview-pane { background: var(--bg); }
 
 /* Tame inline images and code blocks inside foreignObject so they
-   honor maxWidth and don't overflow other branches. */
+   honor a sensible size and don't overflow other branches. Note that
+   `max-width: 100%` is meaningless here because foreignObject sizes
+   to its content — we need an absolute pixel cap. */
 #mindmap foreignObject img {
-  max-width: 100%;
+  max-width: 240px;
+  max-height: 180px;
+  width: auto;
   height: auto;
-  display: block;
+  display: inline-block;
+  object-fit: contain;
+  vertical-align: middle;
 }
 #mindmap foreignObject pre {
   margin: 4px 0;

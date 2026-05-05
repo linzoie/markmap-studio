@@ -1,25 +1,16 @@
-// Comprehensive sample that exercises every feature the markmap-lib
-// transformer supports, mirroring (and slightly extending) the canonical
-// markmap.js.org/repl demo.
+// Comprehensive sample exercising every markmap-supported feature.
+// Modeled after markmap.js.org/repl, in zh-Hant + English.
 //
-// What this demonstrates:
-//   - YAML frontmatter with `markmap:` configuration
-//   - Heading hierarchy (# ## ###)
-//   - Inline formatting: **bold** ~~strikethrough~~ *italic* ==highlight==
-//   - `inline code`, [links](url), images, reference-style links
-//   - Task list items (- [x])
-//   - KaTeX math: $\LaTeX$ inline + display
-//   - Fenced code blocks with language hints
-//   - GFM tables
-//   - Long text wrapping (controlled by `maxWidth`)
-//   - `<!-- markmap: fold -->` to collapse a node by default
-//   - Multi-line content via HTML <br>
+// Markmap rule of thumb: content under a heading only becomes a child
+// NODE if it's wrapped in a list. Plain paragraphs collapse into the
+// heading itself and disappear from the rendered tree. Hence every
+// "leaf" demo here uses `-` list items.
 
 export const SAMPLE_MD = `---
 title: Markmap Studio
 markmap:
   colorFreezeLevel: 2
-  initialExpandLevel: 2
+  initialExpandLevel: 3
   maxWidth: 320
   duration: 350
 ---
@@ -32,62 +23,67 @@ markmap:
 - [GitHub](https://github.com/linzoie/markmap-studio)
 - [markmap 官方](https://markmap.js.org)
 
-## 功能 / Features
+## 文字格式 / Formatting
 
-### 列表 / Lists
-
-- **粗體**　~~刪除線~~　*斜體*　==螢光標記==
+### 行內樣式
+- **粗體** ~~刪除線~~ *斜體* ==螢光標記==
 - \`inline code\`
+- [連結](https://katex.org/docs/supported.html)
+- ![logo](https://markmap.js.org/favicon.png)
+
+### 待辦清單
 - [x] 完成的待辦項目
 - [ ] 未完成的待辦項目
-- 數學公式：$x = {-b \\pm \\sqrt{b^2 - 4ac} \\over 2a}$ <!-- markmap: fold -->
-  - [更多 KaTeX 範例](https://katex.org/docs/supported.html)
-- 一段刻意寫得很長很長的文字，為了示範 \`maxWidth\` 設定如何讓單一節點的文字自動換行而不是擠在同一行
-- 連結與圖片
+- [ ] 另一個未完成項目
 
-### 區塊 / Blocks
+## 程式碼 / Code
 
-\`\`\`js
-// fenced code block
+### JavaScript
+- \`\`\`js
 const greet = (name) => \`Hello, \${name}!\`;
 console.log(greet('Markmap'));
 \`\`\`
 
-\`\`\`python
+### Python
+- \`\`\`python
 def fib(n):
-    return n if n < 2 else fib(n-1) + fib(n-2)
+    return n if n < 2 else fib(n - 1) + fib(n - 2)
 \`\`\`
 
-| 產品 | 價格 |
-|------|-----:|
-| Apple | 4 |
-| Banana | 2 |
-| Cherry | 6 |
+## 表格 / Tables
 
-![markmap logo](https://markmap.js.org/favicon.png)
+### 範例
+- | 產品 | 價格 |
+  |------|-----:|
+  | Apple | 4 |
+  | Banana | 2 |
+  | Cherry | 6 |
 
 ## 數學 / Math
 
 ### Inline math
-
-愛因斯坦質能等價：$E = mc^2$
+- 愛因斯坦質能等價 $E = mc^2$
+- 圓周率 $\\pi \\approx 3.14159$
+- 二次公式 $x = {-b \\pm \\sqrt{b^2 - 4ac} \\over 2a}$
 
 ### Display math
-
-$$
-\\int_{-\\infty}^{\\infty} e^{-x^2} \\, dx = \\sqrt{\\pi}
-$$
+- 高斯積分 $$\\int_{-\\infty}^{\\infty} e^{-x^2} \\, dx = \\sqrt{\\pi}$$
+- 歐拉恆等式 $$e^{i\\pi} + 1 = 0$$
 
 ## Frontmatter 配置
 
 ### 常用選項
 - \`colorFreezeLevel: 2\` — 從第 2 層開始繼承顏色
-- \`initialExpandLevel: 2\` — 預設展開到第 2 層
-- \`maxWidth: 320\` — 單節點最大寬度（px）
+- \`initialExpandLevel: 3\` — 預設展開到第 3 層
+- \`maxWidth: 320\` — 單節點文字最大寬度（px）
 - \`duration: 350\` — 動畫時間（ms）
 
-### 隱藏節點
-- 用 \`<!-- markmap: fold -->\` 註解讓節點預設收合
+### 隱藏節點 <!-- markmap: fold -->
+- 加 \`<!-- markmap: fold -->\` 在標題尾端
+- 該節點預設收合（你看到這個分支被自動收起就是這個原因）
+
+### 長文字示範
+- 這是一段刻意寫得很長很長很長的文字，用來示範 \`maxWidth\` 設定如何讓單一節點的文字自動換行而不是擠在同一行讓畫面爆掉
 
 ## 隱私 / Privacy
 
