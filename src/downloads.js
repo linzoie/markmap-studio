@@ -20,11 +20,13 @@ export const downloads = {
   },
 
   html(md) {
-    const { root } = transformer.transform(md ?? '');
+    const { root, frontmatter } = transformer.transform(md ?? '');
     const title = extractTitle(md) || 'Mindmap';
+    const opts = frontmatter?.markmap ?? null;
     const html = STANDALONE_TEMPLATE
       .replace('__MARKMAP_TITLE__', escapeHtml(title))
-      .replace('/*__MARKMAP_DATA__*/null/*__END__*/', JSON.stringify(root));
+      .replace('/*__MARKMAP_DATA__*/null/*__END__*/', JSON.stringify(root))
+      .replace('/*__MARKMAP_OPTS__*/null/*__END_OPTS__*/', JSON.stringify(opts));
     saveBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `${slug(title)}.html`);
     return title;
   },
