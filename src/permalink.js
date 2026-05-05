@@ -1,47 +1,53 @@
 // Encodes the current Markdown into the URL hash so the link itself
 // carries the content. Nothing leaves the browser; URL fragments are
 // never sent to the server.
+//
+// Two encoding formats coexist:
+//   #md1=...   lz-string compressed (default for new links)
+//   #md=...    plain UTF-8 base64url (legacy; still readable for back-compat)
+//
+// lz-string typically shrinks Chinese Markdown by 50-70%.
 
-const PREFIX = '#md=';
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
+
+const KEY_COMPRESSED = '#md1=';
+const KEY_LEGACY     = '#md=';
 
 export function readPermalink() {
   const hash = window.location.hash;
-  if (!hash || !hash.startsWith(PREFIX)) return null;
-  try {
-    return decodeText(hash.slice(PREFIX.length));
-  } catch {
-    return null;
+  if (!hash) return null;
+
+  if (hash.startsWith(KEY_COMPRESSED)) {
+    const result = decompressFromEncodedURIComponent(hash.slice(KEY_COMPRESSED.length));
+    return result || null;
   }
+
+  if (hash.startsWith(KEY_LEGACY)) {
+    try {
+      return decodeLegacy(hash.slice(KEY_LEGACY.length));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 }
 
 export function updatePermalink(md) {
-  const encoded = encodeText(md ?? '');
-  const target = `${PREFIX}${encoded}`;
-  // Use replaceState so we don't pollute history while typing.
+  const target = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? '')}`;
+  // replaceState so we don't pollute history while typing
   window.history.replaceState(null, '', target);
 }
 
 export function buildShareUrl(md) {
-  const encoded = encodeText(md ?? '');
   const url = new URL(window.location.href);
-  url.hash = `${PREFIX}${encoded}`;
+  url.hash = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? '')}`;
   return url.toString();
 }
 
-// --- helpers --------------------------------------------------------------
+// --- legacy decoder (for any link minted before the lz-string switch) -----
 
-// btoa only handles latin1; encode UTF-8 first.
-function encodeText(text) {
-  const bytes = new TextEncoder().encode(text);
-  let bin = '';
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin)
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
-
-function decodeText(encoded) {
+function decodeLegacy(encoded) {
   const padded = encoded
     .replace(/-/g, '+')
     .replace(/_/g, '/')

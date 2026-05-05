@@ -1,47 +1,98 @@
-export const SAMPLE_MD = `# Markmap Studio
+// Comprehensive sample that exercises every feature the markmap-lib
+// transformer supports, mirroring (and slightly extending) the canonical
+// markmap.js.org/repl demo.
+//
+// What this demonstrates:
+//   - YAML frontmatter with `markmap:` configuration
+//   - Heading hierarchy (# ## ###)
+//   - Inline formatting: **bold** ~~strikethrough~~ *italic* ==highlight==
+//   - `inline code`, [links](url), images, reference-style links
+//   - Task list items (- [x])
+//   - KaTeX math: $\LaTeX$ inline + display
+//   - Fenced code blocks with language hints
+//   - GFM tables
+//   - Long text wrapping (controlled by `maxWidth`)
+//   - `<!-- markmap: fold -->` to collapse a node by default
+//   - Multi-line content via HTML <br>
 
-## 歡迎使用
+export const SAMPLE_MD = `---
+title: Markmap Studio
+markmap:
+  colorFreezeLevel: 2
+  initialExpandLevel: 2
+  maxWidth: 320
+  duration: 350
+---
 
-### 這是什麼
-- 把 Markdown 轉成可互動的心智圖
-- 完全在瀏覽器運作
-- 你的內容**永遠不會**離開這個分頁
+# Markmap Studio
 
-### 怎麼用
-- 左邊改 Markdown
-- 右邊立刻看到結果
-- 拖中間分隔列調整左右寬度
+## 連結 / Links
 
-## 下載格式
+- [Website](https://linzoie.github.io/markmap-studio/)
+- [GitHub](https://github.com/linzoie/markmap-studio)
+- [markmap 官方](https://markmap.js.org)
 
-### Interactive HTML
-- 自包含、可離線開
-- 仍然能 zoom / pan / 收合節點
+## 功能 / Features
 
-### SVG
-- 向量檔
-- 可以丟 Figma、Illustrator 編輯
+### 列表 / Lists
 
-### PNG / JPG
-- 取**目前畫面**
-- 想要全圖請先 fit、再下載
+- **粗體**　~~刪除線~~　*斜體*　==螢光標記==
+- \`inline code\`
+- [x] 完成的待辦項目
+- [ ] 未完成的待辦項目
+- 數學公式：$x = {-b \\pm \\sqrt{b^2 - 4ac} \\over 2a}$ <!-- markmap: fold -->
+  - [更多 KaTeX 範例](https://katex.org/docs/supported.html)
+- 一段刻意寫得很長很長的文字，為了示範 \`maxWidth\` 設定如何讓單一節點的文字自動換行而不是擠在同一行
+- 連結與圖片
 
-## 分享給別人
+### 區塊 / Blocks
 
-### Share 按鈕
-- 把目前 Markdown 編碼進 URL
-- 貼連結就能分享內容
-- 不經過任何伺服器
+\`\`\`js
+// fenced code block
+const greet = (name) => \`Hello, \${name}!\`;
+console.log(greet('Markmap'));
+\`\`\`
 
-## Markmap 語法速查
+\`\`\`python
+def fib(n):
+    return n if n < 2 else fib(n-1) + fib(n-2)
+\`\`\`
 
-### 階層
-- \`#\` 是中心（只能有一個）
-- \`##\` \`###\` 是分支
-- \`-\` 是子節點
+| 產品 | 價格 |
+|------|-----:|
+| Apple | 4 |
+| Banana | 2 |
+| Cherry | 6 |
 
-### 富文本
-- 支援 **粗體**、*斜體*、\`code\`
-- 支援連結 [Markmap](https://markmap.js.org)
-- 支援 LaTeX $E = mc^2$
+![markmap logo](https://markmap.js.org/favicon.png)
+
+## 數學 / Math
+
+### Inline math
+
+愛因斯坦質能等價：$E = mc^2$
+
+### Display math
+
+$$
+\\int_{-\\infty}^{\\infty} e^{-x^2} \\, dx = \\sqrt{\\pi}
+$$
+
+## Frontmatter 配置
+
+### 常用選項
+- \`colorFreezeLevel: 2\` — 從第 2 層開始繼承顏色
+- \`initialExpandLevel: 2\` — 預設展開到第 2 層
+- \`maxWidth: 320\` — 單節點最大寬度（px）
+- \`duration: 350\` — 動畫時間（ms）
+
+### 隱藏節點
+- 用 \`<!-- markmap: fold -->\` 註解讓節點預設收合
+
+## 隱私 / Privacy
+
+### 完全本機運作
+- 你貼的 Markdown **永遠不會**離開這個分頁
+- 所有渲染、下載都在你的瀏覽器
+- 分享連結把內容**壓縮編碼**進 URL，不經任何伺服器
 `;
