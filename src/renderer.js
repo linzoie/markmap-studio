@@ -22,10 +22,39 @@ const KATEX_DELIMITERS = [
   { left: '$',  right: '$',  display: false },
 ];
 
+// Markmap-lib doesn't propagate the fenced-code language hint through
+// to the rendered <code> element (probably stripped during the
+// HTML → tree → render pipeline). We monkey-patch the markdown-it
+// fence rule to explicitly inject `class="language-X"` AND a
+// `data-language="X"` attribute so the post-process pass can recover
+// the language even if classes get stripped downstream.
+function patchFenceRenderer(transformer) {
+  const md = transformer?.md;
+  if (!md?.renderer?.rules) return;
+  const origFence = md.renderer.rules.fence;
+  md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+    const token = tokens[idx];
+    const info = token.info ? String(token.info).trim() : '';
+    const lang = info.split(/\s+/g)[0];
+    if (lang) {
+      const klass = `language-${lang}`;
+      const existing = token.attrGet('class') || '';
+      if (!existing.includes(klass)) {
+        token.attrJoin('class', klass);
+      }
+      token.attrSet('data-language', lang);
+    }
+    return origFence
+      ? origFence(tokens, idx, options, env, self)
+      : self.renderToken(tokens, idx, options);
+  };
+}
+
 export function initRenderer({ svg, host }) {
   const svgEl = typeof svg === 'string' ? document.querySelector(svg) : svg;
   const hostEl = typeof host === 'string' ? document.querySelector(host) : host;
   const transformer = new Transformer();
+  patchFenceRenderer(transformer);
 
   let mm = null;
   let lastRoot = null;
@@ -107,27 +136,24 @@ export function initRenderer({ svg, host }) {
       });
     }
 
-    // Prism — call highlightElement on each <code> directly. This is more
-    // reliable than highlightAllUnder, which can miss elements that sit
-    // inside SVG foreignObject (namespace edge cases). Also handle the
-    // case where markmap put `language-xxx` on the parent <pre> instead
-    // of the <code> child.
+    // Prism — query every <code> in the SVG and recover the language
+    // from either the class (`language-X`), data attribute, or the
+    // parent <pre>. Then call highlightElement directly. This works
+    // around: (a) markmap stripping the class during render, (b)
+    // highlightAllUnder failing across the SVG namespace boundary.
     if (window.Prism && window.Prism.highlightElement) {
-      const codes = svgEl.querySelectorAll('pre > code, code[class*="language-"]');
+      const codes = svgEl.querySelectorAll('code');
       codes.forEach((code) => {
         try {
-          // already highlighted? Prism leaves a marker element behind
           if (code.dataset.markmapPrismDone === '1') return;
 
-          // If the language class only exists on the parent <pre>, copy it
-          const parent = code.parentElement;
-          if (parent && parent.tagName === 'PRE' && !/\blanguage-\S+/.test(code.className)) {
-            const m = parent.className.match(/\blanguage-\S+/);
-            if (m) code.className = (code.className + ' ' + m[0]).trim();
-          }
-          // No language class anywhere → nothing to highlight
-          if (!/\blanguage-\S+/.test(code.className)) return;
+          let lang = pickLang(code) || pickLang(code.parentElement);
+          if (!lang) return; // no language hint anywhere — leave it plain
 
+          const klass = `language-${lang}`;
+          if (!code.className.includes(klass)) {
+            code.className = (code.className + ' ' + klass).trim();
+          }
           window.Prism.highlightElement(code);
           code.dataset.markmapPrismDone = '1';
         } catch { /* ignore single-block failures */ }
@@ -136,6 +162,14 @@ export function initRenderer({ svg, host }) {
   }
 
   function fit() { mm?.fit(); }
+
+  // Extract a language hint from an element's class or data-language.
+  function pickLang(el) {
+    if (!el) return null;
+    if (el.dataset && el.dataset.language) return el.dataset.language;
+    const m = (el.className || '').toString().match(/\blanguage-([\w+\-#]+)/);
+    return m ? m[1] : null;
+  }
 
   return {
     update,
