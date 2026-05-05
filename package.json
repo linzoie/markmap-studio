@@ -1,0 +1,33 @@
+{
+  "name": "markmap-studio",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Paste Markdown, get an interactive mindmap. Pure-frontend, deployable to GitHub Pages.",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "preinstall": "npx --yes only-allow pnpm",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/lang-markdown": "^6.3.1",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.1",
+    "codemirror": "^6.0.1",
+    "d3": "^7.9.0",
+    "html-to-image": "^1.11.11",
+    "markmap-lib": "^0.18.12",
+    "markmap-toolbar": "^0.18.12",
+    "markmap-view": "^0.18.12"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}
