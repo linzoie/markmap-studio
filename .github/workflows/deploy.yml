@@ -35,7 +35,11 @@ jobs:
 
       - run: pnpm build
 
+      # `enablement: true` auto-turns-on GitHub Pages on first run so we
+      # don't have to flip Settings → Pages → Source manually.
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
