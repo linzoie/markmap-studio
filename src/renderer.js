@@ -93,6 +93,8 @@ export function initRenderer({ svg, host }) {
   function runPostProcess() {
     const fos = svgEl.querySelectorAll('foreignObject');
     if (!fos.length) return;
+
+    // KaTeX — walk each foreignObject so $...$ blocks render in place
     if (window.renderMathInElement) {
       fos.forEach((fo) => {
         try {
@@ -104,8 +106,32 @@ export function initRenderer({ svg, host }) {
         } catch { /* per-node failure should not break the whole pass */ }
       });
     }
-    if (window.Prism && window.Prism.highlightAllUnder) {
-      fos.forEach((fo) => window.Prism.highlightAllUnder(fo));
+
+    // Prism — call highlightElement on each <code> directly. This is more
+    // reliable than highlightAllUnder, which can miss elements that sit
+    // inside SVG foreignObject (namespace edge cases). Also handle the
+    // case where markmap put `language-xxx` on the parent <pre> instead
+    // of the <code> child.
+    if (window.Prism && window.Prism.highlightElement) {
+      const codes = svgEl.querySelectorAll('pre > code, code[class*="language-"]');
+      codes.forEach((code) => {
+        try {
+          // already highlighted? Prism leaves a marker element behind
+          if (code.dataset.markmapPrismDone === '1') return;
+
+          // If the language class only exists on the parent <pre>, copy it
+          const parent = code.parentElement;
+          if (parent && parent.tagName === 'PRE' && !/\blanguage-\S+/.test(code.className)) {
+            const m = parent.className.match(/\blanguage-\S+/);
+            if (m) code.className = (code.className + ' ' + m[0]).trim();
+          }
+          // No language class anywhere → nothing to highlight
+          if (!/\blanguage-\S+/.test(code.className)) return;
+
+          window.Prism.highlightElement(code);
+          code.dataset.markmapPrismDone = '1';
+        } catch { /* ignore single-block failures */ }
+      });
     }
   }
 
