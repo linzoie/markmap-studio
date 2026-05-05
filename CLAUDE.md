@@ -42,3 +42,28 @@ Same conventions as the sibling project:
 4. Check it works in `pnpm dev`.
 5. Run `pnpm build` to ensure it bundles cleanly.
 6. Commit; CI deploys.
+
+## Known limitations (parked)
+
+- **Code-block syntax highlighting in the live preview**: Prism is loaded
+  with 14 pre-loaded languages, and `renderer.js` parses fenced langs
+  out of the source Markdown to feed into `Prism.highlightElement`,
+  but the visible result is unreliable. Investigations so far:
+  - markmap-lib's HTML→tree pipeline strips the `language-X` class
+    that markdown-it normally puts on `<code>`.
+  - Monkey-patching the transformer's `md.renderer.rules.fence` had
+    no observable effect (the patched md may not be the instance
+    actually used, or output gets stripped after patching).
+  - Falling back to Markdown-source parsing + DOM-order pairing did
+    set `class="language-js"` correctly in test runs, but the user-
+    visible highlighting was still inconsistent — possibly because
+    markmap's animation re-applies innerHTML after our Prism pass.
+  - The downloaded standalone HTML highlights correctly because its
+    runtime does its own polling without markmap re-rendering it.
+
+  Don't waste another evening on this without first capturing the
+  exact DOM after Prism + after markmap's settle animation in a
+  console snapshot. The fix probably lives in hooking markmap's
+  post-render event rather than running our own polling.
+- **KaTeX math** in live preview works. In the downloaded HTML it
+  also works (CDN-loaded). No outstanding issues for math.
