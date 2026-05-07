@@ -20,6 +20,17 @@ const transformer = new Transformer();
 // Padding around the content bbox so nothing touches the edge of the image.
 const EXPORT_PADDING = 24;
 
+// Raster (PNG/JPG) output cap. The exported image will fit inside this
+// box while preserving aspect ratio. SVG export is uncapped because
+// it's vector and downstream tools resize freely.
+const MAX_RASTER_WIDTH  = 1920;
+const MAX_RASTER_HEIGHT = 1080;
+
+// HiDPI multiplier applied when there's headroom under the cap.
+// Small mindmaps render at this many physical pixels per SVG unit;
+// large ones scale down so the final output never exceeds the cap.
+const HIDPI_RATIO = 2;
+
 // Inline stylesheet embedded into the exported SVG so the file looks the
 // same when opened standalone (without our app's CSS in scope).
 const EXPORT_INLINE_CSS = `
@@ -79,19 +90,48 @@ async function captureFull(svgEl, format) {
     // Let the browser actually layout the cloned SVG before snapshotting.
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+    const { pixelRatio, outW, outH } = computeOutputSize(handle.width, handle.height);
+
     const fn = format === 'jpg' ? toJpeg : toPng;
     const opts = {
       width: handle.width,
       height: handle.height,
-      pixelRatio: 2,
+      pixelRatio,
       cacheBust: true,
       backgroundColor: format === 'jpg' ? '#ffffff' : getComputedBackground(svgEl),
     };
     if (format === 'jpg') opts.quality = 0.95;
+
+    // For diagnostics in case the user later asks "why is my export
+    // 1920x912 instead of 4000x?": the math is in computeOutputSize.
+    void outW; void outH;
+
     return await fn(handle.clone, opts);
   } finally {
     handle.dispose();
   }
+}
+
+/**
+ * Decide the final raster output dimensions and the pixelRatio to feed
+ * html-to-image. We start by aiming for HiDPI (natural × HIDPI_RATIO),
+ * then scale that ideal down uniformly until both axes fit under the
+ * configured cap. Aspect ratio is always preserved; we never scale up
+ * beyond HIDPI_RATIO.
+ */
+function computeOutputSize(naturalW, naturalH) {
+  const idealW = naturalW * HIDPI_RATIO;
+  const idealH = naturalH * HIDPI_RATIO;
+  const scale = Math.min(
+    1,
+    MAX_RASTER_WIDTH  / idealW,
+    MAX_RASTER_HEIGHT / idealH,
+  );
+  return {
+    pixelRatio: HIDPI_RATIO * scale,
+    outW: Math.round(idealW * scale),
+    outH: Math.round(idealH * scale),
+  };
 }
 
 /**
