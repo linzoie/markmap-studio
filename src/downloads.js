@@ -71,26 +71,30 @@ export const downloads = {
     }
   },
 
-  async png(svgEl, title) {
-    const dataUrl = await captureFull(svgEl, 'png');
+  async png(svgEl, title, opts = {}) {
+    const dataUrl = await captureFull(svgEl, 'png', opts);
     saveDataUrl(dataUrl, `${slug(title)}.png`);
   },
 
-  async jpg(svgEl, title) {
-    const dataUrl = await captureFull(svgEl, 'jpg');
+  async jpg(svgEl, title, opts = {}) {
+    const dataUrl = await captureFull(svgEl, 'jpg', opts);
     saveDataUrl(dataUrl, `${slug(title)}.jpg`);
   },
 };
 
 // --- full-view capture --------------------------------------------------
 
-async function captureFull(svgEl, format) {
+async function captureFull(svgEl, format, { hd = false } = {}) {
   const handle = createExportClone(svgEl, { withInlineStyles: false });
   try {
     // Let the browser actually layout the cloned SVG before snapshotting.
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    const { pixelRatio, outW, outH } = computeOutputSize(handle.width, handle.height);
+    // hd=true → no cap, just natural × HIDPI_RATIO (uncompressed sharp).
+    // hd=false → fit inside MAX_RASTER_WIDTH × MAX_RASTER_HEIGHT.
+    const { pixelRatio } = hd
+      ? { pixelRatio: HIDPI_RATIO }
+      : computeOutputSize(handle.width, handle.height);
 
     const fn = format === 'jpg' ? toJpeg : toPng;
     const opts = {
@@ -100,11 +104,7 @@ async function captureFull(svgEl, format) {
       cacheBust: true,
       backgroundColor: format === 'jpg' ? '#ffffff' : getComputedBackground(svgEl),
     };
-    if (format === 'jpg') opts.quality = 0.95;
-
-    // For diagnostics in case the user later asks "why is my export
-    // 1920x912 instead of 4000x?": the math is in computeOutputSize.
-    void outW; void outH;
+    if (format === 'jpg') opts.quality = hd ? 0.99 : 0.95;
 
     return await fn(handle.clone, opts);
   } finally {

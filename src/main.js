@@ -45,6 +45,16 @@ initUpload({
   onError: (err) => showToast(err.message ?? '檔案讀取失敗', { type: 'err' }),
 });
 
+// HD-mode toggle: when checked, raster downloads skip the 1920×1080 cap
+// and emit natural × 2 (uncompressed). State persists in localStorage.
+const HD_KEY = 'markmap-studio.hd';
+const hdToggle = document.getElementById('hd-toggle');
+hdToggle.checked = localStorage.getItem(HD_KEY) === 'true';
+hdToggle.addEventListener('change', () => {
+  localStorage.setItem(HD_KEY, hdToggle.checked ? 'true' : 'false');
+});
+const isHd = () => hdToggle.checked;
+
 // First render
 renderer.update(initialMd);
 
@@ -127,8 +137,9 @@ document.getElementById('btn-svg').addEventListener('click', () => {
 
 document.getElementById('btn-png').addEventListener('click', async () => {
   try {
-    await downloads.png(renderer.getSvg(), getCurrentTitle());
-    showToast('已下載 PNG', { type: 'ok' });
+    const hd = isHd();
+    await downloads.png(renderer.getSvg(), getCurrentTitle(), { hd });
+    showToast(`已下載 PNG${hd ? '（高清原始）' : '（≤1920×1080）'}`, { type: 'ok' });
   } catch (err) {
     console.error(err);
     showToast('下載 PNG 失敗', { type: 'err' });
@@ -137,8 +148,9 @@ document.getElementById('btn-png').addEventListener('click', async () => {
 
 document.getElementById('btn-jpg').addEventListener('click', async () => {
   try {
-    await downloads.jpg(renderer.getSvg(), getCurrentTitle());
-    showToast('已下載 JPG', { type: 'ok' });
+    const hd = isHd();
+    await downloads.jpg(renderer.getSvg(), getCurrentTitle(), { hd });
+    showToast(`已下載 JPG${hd ? '（高清原始）' : '（≤1920×1080）'}`, { type: 'ok' });
   } catch (err) {
     console.error(err);
     showToast('下載 JPG 失敗', { type: 'err' });

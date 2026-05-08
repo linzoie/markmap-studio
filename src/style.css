@@ -114,6 +114,28 @@ button, input { font-family: inherit; font-size: inherit; color: inherit; }
   background: var(--border);
 }
 
+.toolbar-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  transition: background-color .12s, border-color .12s;
+}
+.toolbar-check:hover {
+  background: var(--bg-elev);
+  border-color: var(--border);
+}
+.toolbar-check input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 /* ─── main grid (editor | splitter | preview) ──────────────────────── */
 
 #app {
