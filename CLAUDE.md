@@ -1,3 +1,5 @@
+@../CLAUDE.md
+
 # Project: markmap-studio
 
 A pure-frontend webapp: paste Markdown → live mindmap, with download (HTML/SVG/PNG/JPG), upload, and shareable URLs. Sister project to `article-to-mindmap` (CLI + future AI pipeline).
@@ -67,3 +69,21 @@ Same conventions as the sibling project:
   post-render event rather than running our own polling.
 - **KaTeX math** in live preview works. In the downloaded HTML it
   also works (CDN-loaded). No outstanding issues for math.
+
+## Claude Code 治理（`.claude/`）
+
+此專案已配置：
+
+- **Hooks**：編輯後對 `.js/.json/.css/.md` 等跑 prettier、bash 指令前危險樣式攔截。
+- **Skills**：
+  - `module-pattern` —— `initX()` 慣例、模組不互 import、`main.js` 是唯一接線點
+  - `hard-constraints` —— no backend / no AI / no telemetry 三條硬規則的自動守護
+- **Slash 指令**：`/commit`
+- **子代理**：`code-reviewer`
+
+### prettier 安裝注意
+
+`.prettierrc` 與 `.prettierignore` 已就位，但**相依套件需在你自己的 PowerShell** 執行
+`pnpm add -Dw prettier` 安裝（Claude 沙盒的 pnpm virtual store 與真實 shell 不同）。
+裝好前 after-edit hook 會 graceful no-op、不影響開發。GitHub Actions deploy
+pipeline 不受影響（它在 CI 環境跑乾淨的 `pnpm install`）。
