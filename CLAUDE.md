@@ -87,3 +87,43 @@ Same conventions as the sibling project:
 `pnpm add -Dw prettier` 安裝（Claude 沙盒的 pnpm virtual store 與真實 shell 不同）。
 裝好前 after-edit hook 會 graceful no-op、不影響開發。GitHub Actions deploy
 pipeline 不受影響（它在 CI 環境跑乾淨的 `pnpm install`）。
+
+> **2026-05-25 狀態更新**：prettier 3.8.3 已裝、`.prettierignore` 已加 `*.md`、
+> `.prettierrc` 已加 `endOfLine: auto`（避 Windows CRLF 衝突）、prettier --check . 已 0 errors。
+> Stop hook `.claude/hooks/verify-before-done.ps1` 採客製版只跑 prettier --check
+> （`pnpm build` 因 43 秒太重沒納入；改以 DoD 手動確認 + CI deploy.yml 兜底）。
+
+## 開發流程
+
+預設走 Superpowers 5.1.0 workflow（詳見工作區 `code/CLAUDE.md` 的「開發流程」段，
+靠 `@../CLAUDE.md` import 已自動拉入）：
+
+1. `/superpowers:brainstorming` — 收斂模糊需求
+2. `/superpowers:writing-plans` — 產規格＋逐步計畫，寫進 `specs/`
+3. `/superpowers:test-driven-development` — 先寫失敗測試，再實作
+4. `/superpowers:verification-before-completion` — 宣稱完成前跑驗證
+5. `/superpowers:requesting-code-review` — 完成／合併前審查
+
+遇 bug 用 `/superpowers:systematic-debugging`。動到 `src/` 模組時 `module-pattern`
+skill 會自動載入並提醒 `initX()` 慣例與「模組不互 import」原則；被要求加
+analytics / backend / AI 相依時 `hard-constraints` skill 會自動載入並阻擋
+（這是本 repo 的存在理由）。
+
+## 完成的定義（Definition of Done）
+
+markmap-studio 任務完成的具體門檻：
+
+- `pnpm exec prettier --check .` **0 errors**
+  （2026-05-25 已清乾淨；.md 已豁免）
+- `pnpm build` 成功產出 `dist/`（**手動跑**，Stop hook 因 43 秒太重沒納入）
+- 改 `src/` 後跑 `pnpm dev` 在本機開瀏覽器實際操作確認沒 regression
+  （這個專案是 UI 工具，測試數字救不了你 —— 必須眼睛實際看）
+- 加新 src/ 模組 → 對齊 `.claude/skills/module-pattern`（`initX()` 慣例、main.js 接線）
+- 被要求加任何「會破壞純前端／無遙測／無 AI」的功能 → `.claude/skills/hard-constraints`
+  會自動阻擋；如果你**確實**要加（fork 後私有版），請寫明動機並從 hard-constraints
+  例外清單裡同意豁免
+- 提交到 main → CI（`.github/workflows/deploy.yml`）會自動 build + deploy
+
+> Stop hook `.claude/hooks/verify-before-done.ps1` 是**本專案客製版**，只跑 prettier --check。
+> 因 `pnpm build` 在本機要 43 秒，放進每個 turn 結尾的 Stop 體感太差；
+> 改以 CI（push 觸發）+ DoD 手動確認雙重把關。
