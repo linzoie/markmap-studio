@@ -12,14 +12,14 @@
 // KaTeX & Prism are loaded via <script defer> tags in index.html.
 // We tolerate them not being ready yet by polling briefly.
 
-import { Transformer } from 'markmap-lib';
-import { Markmap, deriveOptions } from 'markmap-view';
-import { Toolbar } from 'markmap-toolbar';
-import 'markmap-toolbar/dist/style.css';
+import { Transformer } from "markmap-lib";
+import { Markmap, deriveOptions } from "markmap-view";
+import { Toolbar } from "markmap-toolbar";
+import "markmap-toolbar/dist/style.css";
 
 const KATEX_DELIMITERS = [
-  { left: '$$', right: '$$', display: true },
-  { left: '$',  right: '$',  display: false },
+  { left: "$$", right: "$$", display: true },
+  { left: "$", right: "$", display: false },
 ];
 
 // Walk the raw Markdown to extract the language hint of every fenced
@@ -37,7 +37,7 @@ function extractFencedLangs(md) {
     if (!inFence) {
       inFence = true;
       fenceMarker = m[1][0]; // remember which marker opened it
-      langs.push((m[2] || '').toLowerCase());
+      langs.push((m[2] || "").toLowerCase());
     } else if (m[1][0] === fenceMarker) {
       inFence = false;
       fenceMarker = null;
@@ -47,8 +47,8 @@ function extractFencedLangs(md) {
 }
 
 export function initRenderer({ svg, host }) {
-  const svgEl = typeof svg === 'string' ? document.querySelector(svg) : svg;
-  const hostEl = typeof host === 'string' ? document.querySelector(host) : host;
+  const svgEl = typeof svg === "string" ? document.querySelector(svg) : svg;
+  const hostEl = typeof host === "string" ? document.querySelector(host) : host;
   const transformer = new Transformer();
 
   let mm = null;
@@ -58,7 +58,7 @@ export function initRenderer({ svg, host }) {
   let toolbarMounted = false;
 
   function update(md) {
-    const { root, frontmatter } = transformer.transform(md ?? '');
+    const { root, frontmatter } = transformer.transform(md ?? "");
     lastRoot = root;
     lastFencedLangs = extractFencedLangs(md);
     const newFrontmatter = JSON.stringify(frontmatter?.markmap ?? {});
@@ -81,13 +81,17 @@ export function initRenderer({ svg, host }) {
 
   function teardown() {
     if (mm) {
-      try { mm.destroy(); } catch { /* older versions don't expose destroy */ }
+      try {
+        mm.destroy();
+      } catch {
+        /* older versions don't expose destroy */
+      }
       mm = null;
     }
     // Wipe SVG children — destroy() does not always clear them.
     while (svgEl.firstChild) svgEl.removeChild(svgEl.firstChild);
     if (toolbarMounted) {
-      hostEl.querySelectorAll('.mm-toolbar').forEach((el) => el.remove());
+      hostEl.querySelectorAll(".mm-toolbar").forEach((el) => el.remove());
       toolbarMounted = false;
     }
   }
@@ -97,7 +101,7 @@ export function initRenderer({ svg, host }) {
     const tb = new Toolbar();
     tb.attach(mm);
     const tbEl = tb.render();
-    tbEl.classList.add('mm-toolbar');
+    tbEl.classList.add("mm-toolbar");
     hostEl.appendChild(tbEl);
     toolbarMounted = true;
   }
@@ -117,7 +121,7 @@ export function initRenderer({ svg, host }) {
   }
 
   function runPostProcess() {
-    const fos = svgEl.querySelectorAll('foreignObject');
+    const fos = svgEl.querySelectorAll("foreignObject");
     if (!fos.length) return;
 
     // KaTeX — walk each foreignObject so $...$ blocks render in place
@@ -127,9 +131,11 @@ export function initRenderer({ svg, host }) {
           window.renderMathInElement(fo, {
             delimiters: KATEX_DELIMITERS,
             throwOnError: false,
-            ignoredClasses: ['katex'],
+            ignoredClasses: ["katex"],
           });
-        } catch { /* per-node failure should not break the whole pass */ }
+        } catch {
+          /* per-node failure should not break the whole pass */
+        }
       });
     }
 
@@ -139,19 +145,19 @@ export function initRenderer({ svg, host }) {
     // language since markmap strips the class server-side and we
     // can't easily monkey-patch its internal markdown-it.
     if (window.Prism && window.Prism.highlightElement) {
-      const pres = svgEl.querySelectorAll('pre');
+      const pres = svgEl.querySelectorAll("pre");
       let langIdx = 0;
       pres.forEach((pre) => {
         try {
           // Ensure there's a <code> child to highlight (markmap usually
           // wraps but we're defensive).
-          let code = pre.querySelector('code');
+          let code = pre.querySelector("code");
           if (!code) {
-            code = document.createElement('code');
+            code = document.createElement("code");
             while (pre.firstChild) code.appendChild(pre.firstChild);
             pre.appendChild(code);
           }
-          if (code.dataset.markmapPrismDone === '1') {
+          if (code.dataset.markmapPrismDone === "1") {
             langIdx += 1;
             return;
           }
@@ -162,22 +168,26 @@ export function initRenderer({ svg, host }) {
 
           const klass = `language-${lang}`;
           if (!code.className.includes(klass)) {
-            code.className = (code.className + ' ' + klass).trim();
+            code.className = (code.className + " " + klass).trim();
           }
           window.Prism.highlightElement(code);
-          code.dataset.markmapPrismDone = '1';
-        } catch { /* ignore single-block failures */ }
+          code.dataset.markmapPrismDone = "1";
+        } catch {
+          /* ignore single-block failures */
+        }
       });
     }
   }
 
-  function fit() { mm?.fit(); }
+  function fit() {
+    mm?.fit();
+  }
 
   // Extract a language hint from an element's class or data-language.
   function pickLang(el) {
     if (!el) return null;
     if (el.dataset && el.dataset.language) return el.dataset.language;
-    const m = (el.className || '').toString().match(/\blanguage-([\w+\-#]+)/);
+    const m = (el.className || "").toString().match(/\blanguage-([\w+\-#]+)/);
     return m ? m[1] : null;
   }
 

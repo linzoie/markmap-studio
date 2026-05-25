@@ -8,10 +8,10 @@
 //
 // lz-string typically shrinks Chinese Markdown by 50-70%.
 
-import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from 'lz-string';
+import { compressToEncodedURIComponent, decompressFromEncodedURIComponent } from "lz-string";
 
-const KEY_COMPRESSED = '#md1=';
-const KEY_LEGACY     = '#md=';
+const KEY_COMPRESSED = "#md1=";
+const KEY_LEGACY = "#md=";
 
 export function readPermalink() {
   const hash = window.location.hash;
@@ -34,14 +34,14 @@ export function readPermalink() {
 }
 
 export function updatePermalink(md) {
-  const target = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? '')}`;
+  const target = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? "")}`;
   // replaceState so we don't pollute history while typing
-  window.history.replaceState(null, '', target);
+  window.history.replaceState(null, "", target);
 }
 
 export function buildShareUrl(md) {
   const url = new URL(window.location.href);
-  url.hash = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? '')}`;
+  url.hash = `${KEY_COMPRESSED}${compressToEncodedURIComponent(md ?? "")}`;
   return url.toString();
 }
 
@@ -49,9 +49,9 @@ export function buildShareUrl(md) {
 
 function decodeLegacy(encoded) {
   const padded = encoded
-    .replace(/-/g, '+')
-    .replace(/_/g, '/')
-    .padEnd(encoded.length + (4 - encoded.length % 4) % 4, '=');
+    .replace(/-/g, "+")
+    .replace(/_/g, "/")
+    .padEnd(encoded.length + ((4 - (encoded.length % 4)) % 4), "=");
   const bin = atob(padded);
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);

@@ -1,57 +1,57 @@
 // Entry point. Wires all the small modules together. Modules don't talk
 // to each other — main.js is the only place that knows about all of them.
 
-import './style.css';
+import "./style.css";
 
-import { initEditor } from './editor.js';
-import { initRenderer } from './renderer.js';
-import { initSplitter } from './splitter.js';
-import { initUpload } from './upload.js';
-import { initTheme } from './theme.js';
-import { showToast } from './toast.js';
-import { downloads } from './downloads.js';
-import { readPermalink, updatePermalink, buildShareUrl } from './permalink.js';
-import { SAMPLE_MD } from './sample.js';
+import { initEditor } from "./editor.js";
+import { initRenderer } from "./renderer.js";
+import { initSplitter } from "./splitter.js";
+import { initUpload } from "./upload.js";
+import { initTheme } from "./theme.js";
+import { showToast } from "./toast.js";
+import { downloads } from "./downloads.js";
+import { readPermalink, updatePermalink, buildShareUrl } from "./permalink.js";
+import { SAMPLE_MD } from "./sample.js";
 
 // --- bootstrap ------------------------------------------------------------
 
 const initialMd = readPermalink() ?? SAMPLE_MD;
 
 const editor = initEditor({
-  container: '#editor-pane',
+  container: "#editor-pane",
   initialContent: initialMd,
 });
 
 const renderer = initRenderer({
-  svg: '#mindmap',
-  host: '#preview-pane',
+  svg: "#mindmap",
+  host: "#preview-pane",
 });
 
-initTheme({ button: '#btn-theme' });
+initTheme({ button: "#btn-theme" });
 
 initSplitter({
-  splitter: '#splitter',
-  host: '#app',
+  splitter: "#splitter",
+  host: "#app",
   onResize: () => renderer.fit(),
 });
 
 initUpload({
-  input: '#file-input',
-  trigger: '#btn-upload',
+  input: "#file-input",
+  trigger: "#btn-upload",
   onLoad: (text, name) => {
     editor.setContent(text);
-    showToast(`已載入 ${name}`, { type: 'ok' });
+    showToast(`已載入 ${name}`, { type: "ok" });
   },
-  onError: (err) => showToast(err.message ?? '檔案讀取失敗', { type: 'err' }),
+  onError: (err) => showToast(err.message ?? "檔案讀取失敗", { type: "err" }),
 });
 
 // HD-mode toggle: when checked, raster downloads skip the 1920×1080 cap
 // and emit natural × 2 (uncompressed). State persists in localStorage.
-const HD_KEY = 'markmap-studio.hd';
-const hdToggle = document.getElementById('hd-toggle');
-hdToggle.checked = localStorage.getItem(HD_KEY) === 'true';
-hdToggle.addEventListener('change', () => {
-  localStorage.setItem(HD_KEY, hdToggle.checked ? 'true' : 'false');
+const HD_KEY = "markmap-studio.hd";
+const hdToggle = document.getElementById("hd-toggle");
+hdToggle.checked = localStorage.getItem(HD_KEY) === "true";
+hdToggle.addEventListener("change", () => {
+  localStorage.setItem(HD_KEY, hdToggle.checked ? "true" : "false");
 });
 const isHd = () => hdToggle.checked;
 
@@ -69,8 +69,8 @@ editor.onChange((md) => {
     try {
       renderer.update(md);
     } catch (err) {
-      console.error('[render]', err);
-      showToast('Markmap 解析失敗（看一下 Markdown 結構）', { type: 'err' });
+      console.error("[render]", err);
+      showToast("Markmap 解析失敗（看一下 Markdown 結構）", { type: "err" });
     }
   }, 250);
 
@@ -80,92 +80,92 @@ editor.onChange((md) => {
 
 // --- toolbar buttons ------------------------------------------------------
 
-document.getElementById('btn-sample').addEventListener('click', () => {
+document.getElementById("btn-sample").addEventListener("click", () => {
   editor.setContent(SAMPLE_MD);
-  showToast('已載入示範內容', { type: 'ok' });
+  showToast("已載入示範內容", { type: "ok" });
 });
 
-document.getElementById('btn-copy').addEventListener('click', async () => {
+document.getElementById("btn-copy").addEventListener("click", async () => {
   try {
     await navigator.clipboard.writeText(editor.getContent());
-    showToast('Markdown 已複製到剪貼簿', { type: 'ok' });
+    showToast("Markdown 已複製到剪貼簿", { type: "ok" });
   } catch {
-    showToast('複製失敗（瀏覽器拒絕剪貼簿存取）', { type: 'err' });
+    showToast("複製失敗（瀏覽器拒絕剪貼簿存取）", { type: "err" });
   }
 });
 
-document.getElementById('btn-share').addEventListener('click', async () => {
+document.getElementById("btn-share").addEventListener("click", async () => {
   const url = buildShareUrl(editor.getContent());
   try {
     await navigator.clipboard.writeText(url);
-    showToast('分享連結已複製到剪貼簿', { type: 'ok' });
+    showToast("分享連結已複製到剪貼簿", { type: "ok" });
   } catch {
     // Fallback: prompt() lets the user copy manually
-    window.prompt('複製這個連結來分享：', url);
+    window.prompt("複製這個連結來分享：", url);
   }
 });
 
-document.getElementById('btn-md').addEventListener('click', () => {
+document.getElementById("btn-md").addEventListener("click", () => {
   try {
     const title = downloads.md(editor.getContent());
-    showToast(`已下載 Markdown（${title}.md）`, { type: 'ok' });
+    showToast(`已下載 Markdown（${title}.md）`, { type: "ok" });
   } catch (err) {
     console.error(err);
-    showToast('下載 Markdown 失敗', { type: 'err' });
+    showToast("下載 Markdown 失敗", { type: "err" });
   }
 });
 
-document.getElementById('btn-html').addEventListener('click', () => {
+document.getElementById("btn-html").addEventListener("click", () => {
   try {
     const title = downloads.html(editor.getContent());
-    showToast(`已下載 HTML（${title}）`, { type: 'ok' });
+    showToast(`已下載 HTML（${title}）`, { type: "ok" });
   } catch (err) {
     console.error(err);
-    showToast('下載 HTML 失敗', { type: 'err' });
+    showToast("下載 HTML 失敗", { type: "err" });
   }
 });
 
-document.getElementById('btn-svg').addEventListener('click', () => {
+document.getElementById("btn-svg").addEventListener("click", () => {
   try {
     downloads.svg(renderer.getSvg(), getCurrentTitle());
-    showToast('已下載 SVG', { type: 'ok' });
+    showToast("已下載 SVG", { type: "ok" });
   } catch (err) {
     console.error(err);
-    showToast('下載 SVG 失敗', { type: 'err' });
+    showToast("下載 SVG 失敗", { type: "err" });
   }
 });
 
-document.getElementById('btn-png').addEventListener('click', async () => {
+document.getElementById("btn-png").addEventListener("click", async () => {
   try {
     const hd = isHd();
     await downloads.png(renderer.getSvg(), getCurrentTitle(), { hd });
-    showToast(`已下載 PNG${hd ? '（高清原始）' : '（≤1920×1080）'}`, { type: 'ok' });
+    showToast(`已下載 PNG${hd ? "（高清原始）" : "（≤1920×1080）"}`, { type: "ok" });
   } catch (err) {
     console.error(err);
-    showToast('下載 PNG 失敗', { type: 'err' });
+    showToast("下載 PNG 失敗", { type: "err" });
   }
 });
 
-document.getElementById('btn-jpg').addEventListener('click', async () => {
+document.getElementById("btn-jpg").addEventListener("click", async () => {
   try {
     const hd = isHd();
     await downloads.jpg(renderer.getSvg(), getCurrentTitle(), { hd });
-    showToast(`已下載 JPG${hd ? '（高清原始）' : '（≤1920×1080）'}`, { type: 'ok' });
+    showToast(`已下載 JPG${hd ? "（高清原始）" : "（≤1920×1080）"}`, { type: "ok" });
   } catch (err) {
     console.error(err);
-    showToast('下載 JPG 失敗', { type: 'err' });
+    showToast("下載 JPG 失敗", { type: "err" });
   }
 });
 
 function getCurrentTitle() {
   const m = editor.getContent().match(/^\s*#\s+(.+?)\s*$/m);
-  return m ? m[1].trim() : 'mindmap';
+  return m ? m[1].trim() : "mindmap";
 }
 
 // --- window resize triggers fit ------------------------------------------
 
 let fitTimer = null;
-window.addEventListener('resize', () => {
+window.addEventListener("resize", () => {
   clearTimeout(fitTimer);
   fitTimer = setTimeout(() => renderer.fit(), 150);
 });

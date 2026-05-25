@@ -5,17 +5,17 @@ const TEXT_TYPES = /^(text\/|application\/json)/;
 const TEXT_EXT = /\.(md|markdown|txt|text|mmd|mdx)$/i;
 
 export function initUpload({ input, trigger, onLoad, onError }) {
-  const inputEl = typeof input === 'string' ? document.querySelector(input) : input;
-  const triggerEl = typeof trigger === 'string' ? document.querySelector(trigger) : trigger;
+  const inputEl = typeof input === "string" ? document.querySelector(input) : input;
+  const triggerEl = typeof trigger === "string" ? document.querySelector(trigger) : trigger;
 
-  triggerEl.addEventListener('click', () => inputEl.click());
+  triggerEl.addEventListener("click", () => inputEl.click());
 
-  inputEl.addEventListener('change', async () => {
+  inputEl.addEventListener("change", async () => {
     const file = inputEl.files?.[0];
     if (!file) return;
     try {
       if (!isTextFile(file)) {
-        throw new Error('只支援文字檔（.md / .markdown / .txt）');
+        throw new Error("只支援文字檔（.md / .markdown / .txt）");
       }
       const text = await file.text();
       onLoad?.(text, file.name);
@@ -23,7 +23,7 @@ export function initUpload({ input, trigger, onLoad, onError }) {
       onError?.(err);
     } finally {
       // reset so selecting the same file re-fires change
-      inputEl.value = '';
+      inputEl.value = "";
     }
   });
 }

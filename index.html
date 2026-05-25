@@ -1,74 +1,143 @@
 <!doctype html>
 <html lang="zh-Hant">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
-  <title>Markmap Studio</title>
-  <meta name="description" content="貼上 Markdown，即時繪製成可互動的心智圖。可下載 HTML、SVG、PNG。完全在瀏覽器執行，不上傳任何內容。" />
-  <meta name="color-scheme" content="light dark" />
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <title>Markmap Studio</title>
+    <meta
+      name="description"
+      content="貼上 Markdown，即時繪製成可互動的心智圖。可下載 HTML、SVG、PNG。完全在瀏覽器執行，不上傳任何內容。"
+    />
+    <meta name="color-scheme" content="light dark" />
 
-  <!-- KaTeX (math) -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous" />
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script>
+    <!-- KaTeX (math) -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"
+      crossorigin="anonymous"
+    />
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+      crossorigin="anonymous"
+    ></script>
 
-  <!-- Prism (code highlighting). We pre-load the most common languages
+    <!-- Prism (code highlighting). We pre-load the most common languages
        explicitly because the autoloader's async fetch is fragile when
        Prism is loaded via <script defer>. Autoloader is kept as a
        fallback for any other language someone might paste. -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css" />
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-jsx.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"></script>
-</head>
-<body>
-  <header class="topbar">
-    <div class="topbar-left">
-      <h1 class="brand">Markmap Studio</h1>
-      <span class="brand-sub">Markdown → 心智圖</span>
-    </div>
-    <nav class="toolbar">
-      <input type="file" id="file-input" accept=".md,.markdown,.txt,.text" hidden />
-      <button id="btn-upload"     title="從檔案載入 Markdown">Upload</button>
-      <button id="btn-sample"     title="載入示範內容">Sample</button>
-      <button id="btn-copy"       title="把 Markdown 複製到剪貼簿">Copy</button>
-      <span class="sep"></span>
-      <button id="btn-md"         title="下載 Markdown 檔（.md）">MD</button>
-      <button id="btn-html"       title="下載互動 HTML">HTML</button>
-      <button id="btn-svg"        title="下載 SVG 向量圖">SVG</button>
-      <button id="btn-png"        title="下載 PNG 圖片（整張心智圖）">PNG</button>
-      <button id="btn-jpg"        title="下載 JPG 圖片（整張心智圖）">JPG</button>
-      <label class="toolbar-check" title="勾選後 PNG/JPG 不套用 1920×1080 上限，輸出原始尺寸 ×2 的高清圖檔">
-        <input type="checkbox" id="hd-toggle" />
-        <span>圖片高清</span>
-      </label>
-      <span class="sep"></span>
-      <button id="btn-share"      title="複製可分享的連結">Share</button>
-      <button id="btn-theme"      title="切換深色模式" aria-label="theme">🌓</button>
-    </nav>
-  </header>
-  <main id="app">
-    <section id="editor-pane" aria-label="Markdown editor"></section>
-    <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"></div>
-    <section id="preview-pane" aria-label="Mindmap preview">
-      <svg id="mindmap"></svg>
-    </section>
-  </main>
-  <div id="toast-host" aria-live="polite"></div>
-  <script type="module" src="/src/main.js"></script>
-</body>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism.min.css"
+    />
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-core.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markup.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-css.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-clike.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-jsx.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-yaml.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-markdown.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-sql.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-go.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-rust.min.js"
+    ></script>
+    <script
+      defer
+      src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/plugins/autoloader/prism-autoloader.min.js"
+    ></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="topbar-left">
+        <h1 class="brand">Markmap Studio</h1>
+        <span class="brand-sub">Markdown → 心智圖</span>
+      </div>
+      <nav class="toolbar">
+        <input type="file" id="file-input" accept=".md,.markdown,.txt,.text" hidden />
+        <button id="btn-upload" title="從檔案載入 Markdown">Upload</button>
+        <button id="btn-sample" title="載入示範內容">Sample</button>
+        <button id="btn-copy" title="把 Markdown 複製到剪貼簿">Copy</button>
+        <span class="sep"></span>
+        <button id="btn-md" title="下載 Markdown 檔（.md）">MD</button>
+        <button id="btn-html" title="下載互動 HTML">HTML</button>
+        <button id="btn-svg" title="下載 SVG 向量圖">SVG</button>
+        <button id="btn-png" title="下載 PNG 圖片（整張心智圖）">PNG</button>
+        <button id="btn-jpg" title="下載 JPG 圖片（整張心智圖）">JPG</button>
+        <label
+          class="toolbar-check"
+          title="勾選後 PNG/JPG 不套用 1920×1080 上限，輸出原始尺寸 ×2 的高清圖檔"
+        >
+          <input type="checkbox" id="hd-toggle" />
+          <span>圖片高清</span>
+        </label>
+        <span class="sep"></span>
+        <button id="btn-share" title="複製可分享的連結">Share</button>
+        <button id="btn-theme" title="切換深色模式" aria-label="theme">🌓</button>
+      </nav>
+    </header>
+    <main id="app">
+      <section id="editor-pane" aria-label="Markdown editor"></section>
+      <div id="splitter" role="separator" aria-orientation="vertical" tabindex="0"></div>
+      <section id="preview-pane" aria-label="Mindmap preview">
+        <svg id="mindmap"></svg>
+      </section>
+    </main>
+    <div id="toast-host" aria-live="polite"></div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
 </html>
