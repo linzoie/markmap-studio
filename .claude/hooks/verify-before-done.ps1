@@ -1,52 +1,173 @@
 #!/usr/bin/env pwsh
 # ============================================================
-# verify-before-done.ps1  —  Stop hook（markmap-studio 客製版）
+# verify-before-done.ps1  —  Stop hook
 #
-# 為什麼客製？
-#   工作區範本 verify-before-done.ps1 在 Node 分支跑
-#   `npm run lint` / `typecheck` / `test`，但 markmap-studio 的
-#   package.json 沒這 3 個 scripts —— 直接套會 false-block。
+# 完成前把關：在能定位到「單一子專案 toolchain」時，跑 lint + 型別檢查 + 測試。
+# 任一項失敗 → exit 2（把控制權交回 Claude，要求繼續修）。
+# 在多子專案工作區根（定位不到單一子專案）→ 不硬擋，只輸出提醒 + exit 0。
 #
-# 本專案的自動化驗證選擇：
-#   ✅ prettier --check 排版檢查（與 .prettierignore 配合）
-#   ❌ pnpm build (vite build) —— 實測 43 秒，放進 Stop hook 每個 turn
-#       結尾 +43s 體感太重；改以「DoD 手動確認項」+ CI 自動 build（push
-#       到 main 觸發 .github/workflows/deploy.yml）兜底
-#   ❌ 單元測試 —— 本專案目前沒測試框架
+# v2.1 變更（2026-07-09，vs v2）：
+#   1) 失敗訊息改寫到 stderr —— exit 2 時 Claude 只收得到 stderr，
+#      v2 全走 stdout 導致模型「被擋卻看不到原因」而亂修。
+#      失敗時會把該項檢查輸出的最後 40 行一併給 Claude。
+#   2) 讀 stdin JSON 並檢查 stop_hook_active —— 防止 Stop hook 無限迴圈
+#      （官方建議；hook 已擋過一次後第二次直接放行）。
+#   3) Python 分支支援統一測試入口 tests/run_all.py（本工作區 Python
+#      專案多為純 assert 腳本、無 pytest；run_all.py 是可被機械執行的
+#      DoD 入口）。pytest 仍支援（存在才跑）。
+#   4) Node 分支優先跑 package.json 的 "verify" script（若存在，只跑它，
+#      視為專案自定義的完整驗證入口）；否則照 v2 跑 lint/typecheck/test，
+#      再否則 fallback prettier --check。
 #
-# 行為：
-#   prettier 未裝 → 提醒、exit 0（不誤殺）
-#   prettier --check 通過 → exit 0
-#   prettier --check 失敗 → exit 2（強制 Claude 繼續修）
+# 設計理由（沿襲 v2）：
+#   `code/` 是多子專案容器；從工作區根 session 無法可靠推測使用者「正在處理
+#   哪個子專案」，因此採「保守、不誤殺」策略。真正的「完成前驗證」由子專案
+#   自己的 .claude/ 配置（透過 .governance 範本繼承）執行。
 # ============================================================
 $ErrorActionPreference = 'Continue'
+
+# 0) 防迴圈：stop_hook_active 表示本 hook 已經擋過一次，這次放行
+$raw = [Console]::In.ReadToEnd()
+if ($raw) {
+    try {
+        $hookData = $raw | ConvertFrom-Json
+        if ($hookData.stop_hook_active) {
+            Write-Host 'verify: stop_hook_active=true（已擋過一輪），本次放行以免無限迴圈。'
+            exit 0
+        }
+    } catch { }
+}
 
 $projectDir = $env:CLAUDE_PROJECT_DIR
 if (-not $projectDir) { $projectDir = (Get-Location).Path }
 
-$prettier = Join-Path $projectDir 'node_modules\.bin\prettier.cmd'
-if (-not (Test-Path -LiteralPath $prettier)) {
-    Write-Host 'verify: prettier 未安裝（請 pnpm install），略過驗證'
-    exit 0
-}
+$venv = Join-Path $projectDir '.venv\Scripts\python.exe'
+$pkgJson = Join-Path $projectDir 'package.json'
 
-Write-Host '=== Stop hook (verify-before-done): markmap-studio 客製版 ==='
-Write-Host '--- prettier --check . ---'
-Push-Location $projectDir
-try {
-    & $prettier --check . 2>&1 | Out-Host
-    $rc = $LASTEXITCODE
-} finally {
-    Pop-Location
-}
-
-if ($rc -ne 0) {
-    Write-Host 'verify: prettier --check 失敗，請先 prettier --write 修復再宣告完成。'
+# 失敗回報：摘要 + 該檢查輸出的最後 40 行 → stderr（Claude 看得到）
+function Fail([string]$summary, $output) {
+    [Console]::Error.WriteLine("[STOP-HOOK] verify-before-done：$summary")
+    if ($output) {
+        $lines = @($output | ForEach-Object { "$_" })
+        $tail = if ($lines.Count -gt 40) { $lines[-40..-1] } else { $lines }
+        [Console]::Error.WriteLine('--- 失敗輸出（最後 40 行）---')
+        foreach ($l in $tail) { [Console]::Error.WriteLine($l) }
+    }
+    [Console]::Error.WriteLine('請修復後再宣告完成（禁止在未通過驗證時宣稱「應該沒問題」）。')
     exit 2
 }
 
-Write-Host ''
-Write-Host '提醒：pnpm build (vite) 沒在 Stop hook 內跑（43s 太重）。'
-Write-Host '      改完功能後請手動跑 pnpm build 確認 bundle 仍正常。'
-Write-Host '      CI (.github/workflows/deploy.yml) 在 push 到 main 時會自動把關。'
+# ──────────────────────────────────────────────────────────────
+# 情境 1：session 根就是一個 Python 子專案（有 .venv\Scripts\python.exe）
+# ──────────────────────────────────────────────────────────────
+if (Test-Path -LiteralPath $venv) {
+    Write-Host '=== Stop hook (verify-before-done): Python 子專案驗證 ==='
+
+    # 1a) ruff lint
+    $ruff = Join-Path $projectDir '.venv\Scripts\ruff.exe'
+    if (Test-Path -LiteralPath $ruff) {
+        Write-Host '--- ruff check ---'
+        $out = & $ruff check -- "$projectDir" 2>&1
+        $out | Out-Host
+        if ($LASTEXITCODE -ne 0) { Fail 'ruff lint 失敗' $out }
+    }
+
+    # 1b) 型別檢查（若 mypy 存在）
+    $mypy = Join-Path $projectDir '.venv\Scripts\mypy.exe'
+    if (Test-Path -LiteralPath $mypy) {
+        Write-Host '--- mypy ---'
+        $out = & $mypy "$projectDir" 2>&1
+        $out | Out-Host
+        if ($LASTEXITCODE -ne 0) { Fail 'mypy 型別檢查失敗' $out }
+    }
+
+    # 1c) 統一測試入口（若 tests/run_all.py 存在 —— 純 assert 腳本專案用）
+    $runAll = Join-Path $projectDir 'tests\run_all.py'
+    if (Test-Path -LiteralPath $runAll) {
+        Write-Host '--- python tests/run_all.py ---'
+        Push-Location $projectDir
+        try {
+            $out = & $venv 'tests\run_all.py' 2>&1
+            $out | Out-Host
+            if ($LASTEXITCODE -ne 0) { Fail 'tests/run_all.py 測試未通過' $out }
+        } finally { Pop-Location }
+    }
+
+    # 1d) pytest（若存在）
+    $pytest = Join-Path $projectDir '.venv\Scripts\pytest.exe'
+    if (Test-Path -LiteralPath $pytest) {
+        Write-Host '--- pytest ---'
+        $out = & $pytest -q "$projectDir" 2>&1
+        $out | Out-Host
+        if ($LASTEXITCODE -ne 0) { Fail 'pytest 測試未通過' $out }
+    }
+
+    exit 0
+}
+
+# ──────────────────────────────────────────────────────────────
+# 情境 2：session 根是 Node 子專案（根目錄有 package.json）
+# 優先序：verify script（專案自定義完整驗證）＞ lint/typecheck/test
+# scripts ＞ prettier --check fallback
+# ──────────────────────────────────────────────────────────────
+if (Test-Path -LiteralPath $pkgJson) {
+    Write-Host '=== Stop hook (verify-before-done): Node 子專案驗證 ==='
+
+    if (-not (Test-Path -LiteralPath (Join-Path $projectDir 'node_modules'))) {
+        Write-Host 'verify: node_modules 不存在，略過 Node 驗證（請先 pnpm/npm install）。'
+        exit 0
+    }
+
+    # 讀 package.json 看有哪些 scripts
+    $scripts = @()
+    try {
+        $pkg = Get-Content $pkgJson -Raw | ConvertFrom-Json
+        if ($pkg.scripts) { $scripts = $pkg.scripts.PSObject.Properties.Name }
+    } catch { }
+
+    Push-Location $projectDir
+    try {
+        if ($scripts -contains 'verify') {
+            # 專案自定義的統一驗證入口，只跑它
+            Write-Host '--- npm run verify ---'
+            $out = & npm run -s verify 2>&1
+            $out | Out-Host
+            if ($LASTEXITCODE -ne 0) { Fail 'npm run verify 未通過' $out }
+            exit 0
+        }
+
+        $ran = $false
+        foreach ($s in @('lint', 'typecheck', 'test')) {
+            if ($scripts -contains $s) {
+                Write-Host "--- npm run $s ---"
+                $out = & npm run -s $s 2>&1
+                $out | Out-Host
+                if ($LASTEXITCODE -ne 0) { Fail "npm run $s 未通過" $out }
+                $ran = $true
+            }
+        }
+        if (-not $ran) {
+            # 沒有任一 script → 退到 prettier --check（最低限度的樣式把關）
+            $prettier = Join-Path $projectDir 'node_modules\.bin\prettier.cmd'
+            if (Test-Path -LiteralPath $prettier) {
+                Write-Host '--- fallback: prettier --check . (package.json 無 verify/lint/typecheck/test scripts) ---'
+                $out = & $prettier --check . 2>&1
+                $out | Out-Host
+                if ($LASTEXITCODE -ne 0) { Fail 'prettier --check 未通過' $out }
+            } else {
+                Write-Host 'verify: 無 npm scripts、也無 prettier，無實質驗證可跑（exit 0）'
+            }
+        }
+    } finally {
+        Pop-Location
+    }
+    exit 0
+}
+
+# ──────────────────────────────────────────────────────────────
+# 情境 3：在多子專案工作區根（code/）—— 定位不到單一子專案 toolchain
+# 設計：不硬擋，只提醒 + exit 0
+# ──────────────────────────────────────────────────────────────
+Write-Host 'verify: 目前 session 在多子專案工作區根，無法自動定位單一子專案進行完整驗證。'
+Write-Host '        若有實質修改，請在對應子專案內確認測試/型別/lint 全綠後再宣告完成。'
 exit 0
