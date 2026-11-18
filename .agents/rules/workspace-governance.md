@@ -1,3 +1,6 @@
+---
+trigger: always_on
+---
 <!-- generated-by: .governance/bin/sync-workspace-rules.ps1 -->
 
 > ⚠️ **這個檔案是自動產生的，不要手動編輯。**
@@ -57,7 +60,7 @@ pwsh <工作區>/.governance/bin/mark-loaded.ps1 -Tool <claude|codex|gemini|anti
 每個專案的「工作到哪了」權威來源是交接狀態卡：`.governance/handoff/projects/<專案>.md`
 
 1. 讀該卡，用一句話總結你理解的現況與待辦
-2. 比對卡片的 `last_verified_commit` 與目前 `git log -1`
+2. 跑 `pwsh <工作區>/.governance/bin/handoff.ps1 onboard -Project <名> -Strict`，以它的 card-fresh 判定為準（它會略過只改交接卡與 agent 設定檔的 commit；待裁決、派工帳本的 commit 照算，所以收工時先 commit 它們、最後才 checkpoint），不要自己拿 `last_verified_commit` 比 `git log -1`；跑不了才退回手動比對，並在回報裡註明「手動比對，可能把治理 commit 誤判成過期」
 3. **不一致或與程式碼牴觸就停下重讀**，先校正卡片再開始工作
 
 **收工前的固定最後一步**：更新該卡（完成什麼、卡在哪、失敗過的方法、下一個具體動作、
@@ -152,6 +155,10 @@ workflow）時，證據必須是**用那個確切呼叫方式端到端跑過一�
   （同一 agent 第二次撞到即寫 taint）；子 agent 遇到就停止該項工作、回傳 `needs_user_machine_action` 交主迴圈問。
   守門是字面比對，執行期才組出的指令它看不到——**看不到不代表允許**，這條規則照樣適用。
   `with-child stop` 只限本 session 登記的程序；遇 exit 6 就停手在對話裡回報，跨 session 由使用者親手執行。
+  **整機程序列舉卡住時收手**（2026-11-08 乙組 #10）：tasklist、Get-Process 不帶 -Id、Get-CimInstance Win32_Process、wmic process 這類
+  「列出整台電腦程序」的查詢第一次逾時或失敗時，記錄端（`record-branch-switch`／`record-process-query-stall` 呼叫 `lib-process-query-stall`）記入本 session 計數，守門端（`guard-bash` 呼叫同一函式庫）之後讓
+  主迴圈的同類查詢跳確認框（按允許＝重試一次）、再失敗或子代理遇到一律擋下。看到停手提醒或擋下就停手：在對話裡問使用者要不要重試，
+  並提醒「若不重試，建議存檔後重開機」；子代理回傳 `needs_user_machine_action`；不得改寫指令再查。
 
 **被守門擋下時的合法出口（任何 agent）**：停手，在對話裡寫出被擋的指令與理由，請使用者在自己的終端機執行；
 **不得**修改守門／hook、不得跑 sync 散佈、不得換寫法重試同一件事（2026-10-10 曾有 agent 為解除自己被擋而改守門並散佈）。
