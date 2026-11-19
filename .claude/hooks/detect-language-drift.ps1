@@ -41,7 +41,11 @@
 #      （stop_hook_active 讓下一輪放行）。
 #
 # 環境變數（測試與調整用）：LANG_DRIFT_DISABLE、LANG_DRIFT_MIN_WORDS、LANG_DRIFT_RATIO、
-#   LANG_DRIFT_BLOCK_MIN_WORDS、LANG_DRIFT_CUM_WORDS、LANG_DRIFT_SCAN_SEC、LANG_DRIFT_TAIL_BYTES
+#   LANG_DRIFT_BLOCK_MIN_WORDS、LANG_DRIFT_CUM_WORDS、LANG_DRIFT_SCAN_SEC、LANG_DRIFT_TAIL_BYTES、
+#   LANG_DRIFT_STATE_DIR（語言提醒標記檔的狀態目錄；只認 TEMP 之下且路徑上無 junction，見 lib-lang-reminder.ps1）
+#
+# 【2026-11-18 項目 L：語言提醒】擋下（exit 2）前為本 session 寫標記檔；之後 record-branch-switch／record-reads 的 PostToolUse
+#   注入一句繁中提醒。寫標記失敗只損失提醒、不影響擋下（stderr 多一行 marker not written）。
 # ============================================================
 $ErrorActionPreference = 'Stop'
 
@@ -218,6 +222,18 @@ try {
 
     if ($findings.Count -eq 0) { exit 0 }
 
+    # 2026-11-18（next-batch-1 L，使用者 11-08 裁定 A）：擋下時為本 session 寫「語言提醒標記檔」，之後每次被涵蓋的工具呼叫
+    # 由 record-branch-switch／record-reads 在 PostToolUse 注入一句繁中提醒（lib-lang-reminder.ps1）。
+    # ⚠️ 整段必須自己 try/catch：外層 catch 會 exit 0，任何未接住的例外都會把「擋」變成「放行」。標記寫不進去只損失提醒，不得影響下面的 exit 2。
+    $markerNote = ''
+    try {
+        $libLr = Join-Path $PSScriptRoot 'lib-lang-reminder.ps1'
+        if (Test-Path -LiteralPath $libLr) {
+            . (Join-Path $PSScriptRoot 'lib-lang-reminder.ps1')
+            if ((Get-Command AglrMarkBlocked -ErrorAction SilentlyContinue) -and (AglrMarkBlocked $data)) { } else { $markerNote = '[language-drift] marker not written' }
+        } else { $markerNote = '[language-drift] marker not written' }
+    } catch { $markerNote = '[language-drift] marker not written' }
+
     # 命中 → exit 2，stderr 回饋給模型（官方：Stop 的 exit 2 讓模型繼續，stderr 成為回饋）
     $lines = @('[language-drift] 本回合有給使用者看的文字是英文：')
     foreach ($f in $findings) { $lines += "  - $f" }
@@ -231,6 +247,7 @@ try {
         '',
         '（若使用者在本 session 明確要求用英文，說明一句即可結束——下一輪不會再擋。）'
     )
+    if ($markerNote) { $lines += $markerNote }
     [Console]::Error.WriteLine(($lines -join "`n"))
     exit 2
 } catch {

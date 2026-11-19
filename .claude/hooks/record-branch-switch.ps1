@@ -8,8 +8,9 @@
 #   B. 整機程序列舉的卡住記錄（lib-process-query-stall.ps1 的 Ag2bRecordEval；PostToolUse 成功路徑與 is_error 旗標；
 #      PostToolUseFailure 事件仍由 record-process-query-stall.ps1 獨立接線）。
 #   C. Bash／PowerShell 執行過的腳本記為「已看過」（lib-record-reads.ps1 的 AgfxRdRecordShellScripts，供 detect-unread-claim 用）。
-# 三段各自 try/catch：任何一段出錯都不影響其他段，也不得擋工具（Post hook 一律 exit 0）。stdout 只有 B 可能輸出一行
-# ASCII JSON（additionalContext 提醒）；A、C 不輸出。各段行為與搬家前相同。
+#   D. 語言提醒（2026-11-18 項目 L；lib-lang-reminder.ps1）：同 session 被 detect-language-drift 擋過後，注入一句繁中提醒。只在非全域副本跑。
+# 各段各自 try/catch：任何一段出錯都不影響其他段，也不得擋工具（Post hook 一律 exit 0）。stdout 只有 B、D 可能輸出，且最後合併成
+# 恰一行 ASCII JSON（additionalContext 提醒）；A、C 不輸出。A、B、C 行為與搬家前相同。
 #
 # 【A 的為什麼】並行分支漂移偵測（guard-bash 步驟 4b → Get-BranchDriftVerdict）比對的是
 # 「狀態檔記的分支」vs「現在的分支」。狀態檔原本**只在 SessionStart 寫一次**，所以
@@ -121,13 +122,14 @@ try {
             return ($here -ieq $glob)
         } catch { return $false }
     }
+    $pqOut = ''
     try {
         $libPq = Join-Path $PSScriptRoot 'lib-process-query-stall.ps1'
         if ((-not (AgfxF1IsGlobalCopy)) -and (Test-Path -LiteralPath $libPq)) {
             . (Join-Path $PSScriptRoot 'lib-process-query-stall.ps1')
             if (Get-Command Ag2bRecordEval -ErrorAction SilentlyContinue) {
+                # 2026-11-18（項目 L）：不在這裡輸出，留到最後與 D 段合併成「單一一行 JSON」（stdout 出現兩個 JSON 物件會讓 harness 解析失敗）
                 $pqOut = Ag2bRecordEval $data
-                if ($pqOut) { [Console]::Out.WriteLine($pqOut) }
             }
         }
     } catch { }
@@ -140,6 +142,28 @@ try {
             if (Get-Command AgfxRdRecordShellScripts -ErrorAction SilentlyContinue) { AgfxRdRecordShellScripts $data }
         }
     } catch { }
+
+    # ── D. 語言提醒（2026-11-18 項目 L；lib-lang-reminder.ps1）──
+    # detect-language-drift（Stop）擋過本 session 一次後，之後每次 Bash／PowerShell 的 PostToolUse 注入一句繁中提醒。
+    # 只在非全域副本執行：在 code/ 與子專案內全域、專案各會跑一份本檔，不略過就會注入兩次（detect-language-drift 本來只接專案層，全域副本略過不損失覆蓋）。
+    # fail-open：lib 缺或判定出任何錯 → 沒有提醒，不影響其他段。
+    $lrText = ''
+    try {
+        $libLr = Join-Path $PSScriptRoot 'lib-lang-reminder.ps1'
+        if ((-not (AgfxF1IsGlobalCopy)) -and (Test-Path -LiteralPath $libLr)) {
+            . (Join-Path $PSScriptRoot 'lib-lang-reminder.ps1')
+            if (Get-Command AglrGetReminder -ErrorAction SilentlyContinue) { $lrText = AglrGetReminder $data }
+        }
+    } catch { $lrText = '' }
+
+    # ── 輸出：B、D 只有一段有內容就照原樣；兩段都有就合併成一則 additionalContext，仍只印一行 ASCII JSON ──
+    try {
+        if ($pqOut -and $lrText) { [Console]::Out.WriteLine((AglrMergeContext $pqOut $lrText)) }
+        elseif ($pqOut) { [Console]::Out.WriteLine($pqOut) }
+        elseif ($lrText) { [Console]::Out.WriteLine((AglrContextJson $lrText)) }
+    } catch {
+        try { if ($pqOut) { [Console]::Out.WriteLine($pqOut) } } catch { }
+    }
 }
 catch { }
 

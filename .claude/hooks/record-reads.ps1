@@ -100,6 +100,19 @@ if ($isShell) {
     exit 0
 }
 
+# 2026-11-18（項目 L 語言提醒）：同 session 被 detect-language-drift 擋過後，之後每次 readish 工具的 PostToolUse 注入一行繁中提醒。
+# 放在 $isShell 之後（Bash／PowerShell 由 record-branch-switch 注入，這裡略過，免得舊接線下同一次呼叫被注入兩次）、
+# 放在失敗檢查與路徑提早 exit 之前（提醒與「這次有沒有記到檔」無關）。原流程不寫 stdout，所以不需要合併。fail-open：任何錯誤＝沒有提醒。
+try {
+    if (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'lib-lang-reminder.ps1')) {
+        . (Join-Path $PSScriptRoot 'lib-lang-reminder.ps1')
+        if (Get-Command AglrGetReminder -ErrorAction SilentlyContinue) {
+            $lrText = AglrGetReminder $data
+            if ($lrText) { [Console]::Out.WriteLine((AglrContextJson $lrText)) }
+        }
+    }
+} catch { }
+
 # 防禦性失敗檢查（同 record-webfetch.ps1）：失敗的呼叫不算「看過」。
 # PostToolUse 依官方文件只在工具成功後觸發，但版本行為非契約，多一層保險。
 $resp = $data.tool_response

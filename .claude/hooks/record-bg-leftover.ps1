@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 # ============================================================
 # record-bg-leftover.ps1
-#   SubagentStop hook (matcher: 空) ＋ Stop hook (matcher: 空)
+#   SubagentStop hook (matcher: 空) ＋ Stop hook (matcher: 空) ＋ SessionEnd hook（帶 per-hook timeout）
 #   —— runaway-process-prevention 規格 Task 2.2（D-3）：記錄「結束時還留著背景工作」
 #
 # 【為什麼存在】2026-10 的 python 空轉事故（同形狀 11 次）：子代理把一個卡住的指令被 harness
@@ -12,19 +12,41 @@
 # 【設計：安全網不是閘門】
 # 永遠 exit 0、永遠不寫 stdout、永遠不阻擋（Stop 的 exit 2 會強迫模型繼續，不能用）。
 # 任何一步失敗都 fail-open：寧可少記，也不能擋住主流程。
-# 但「少記」不能靜默——判定不了的情形（輸入壞掉、欄位缺又沒有逐字稿、逐字稿讀不到）
+# 但「少記」不能靜默——判定不了的情形（輸入壞掉、欄位缺又沒有逐字稿、逐字稿讀不到、快照缺或壞）
 # 一律寫一行 UNDETERMINED 紀錄（bg-leftovers-undetermined.jsonl，追加式，行數＝計數），
 # 不得摺進「沒有遺留」（memory query-failure-is-not-absence）。
 #
-# 【判據】
+# 【三路分流（計畫書 2026-11-09 §3 A；2026-11 起）】
+# 舊版把主迴圈 Stop 的背景工作也當遺留記，結果主迴圈自己掛的 workflow／監看／shell 全成誤報
+# （bg-leftovers.jsonl 約七成是這類）。真正的遺留只有兩種：子代理結束時留下的，與「整個 session
+# 結束時還在」的。所以依事件分流：
+#   SubagentStop：即時記錄子代理自己留下的背景工作，但忽略 type 恰為 workflow、monitor 的項目
+#     （workflow 是父 workflow 自己、monitor 是監看，都不是子代理留下的程序）。shell、subagent
+#     （背景 Agent 的 type，§9.2）、agent、缺 type、type 非字串、大小寫變體一律照記（寧可多記）。
+#     欄位缺時的逐字稿備援維持原樣。
+#   Stop（主迴圈）：**不寫遺留檔**。每回合把非終態背景工作寫成每 session 一個覆寫式快照檔
+#     bg-snapshot-<安全化 sid>.json（空陣列也要寫，否則舊快照會讓 SessionEnd 誤報）。
+#     欄位缺＝判不了：丟棄該 session 的舊快照（過期快照不得被拿去升級）並寫 UNDETERMINED
+#     stop-schema-missing。Stop 不碰逐字稿備援。
+#   SessionEnd：只讀該 session 的快照檔，不看 background_tasks 與逐字稿。快照裡非 aux（aux＝type 恰為
+#     workflow／monitor）的非終態項目升級成一筆遺留（去重沿用 Get-RecordedIds）。reason 為 clear、
+#     resume（大小寫不拘）時背景工作是否存活未知，改寫進「待觀察」檔 bg-leftovers-watch.jsonl，
+#     SessionStart 不提醒；其他任何 reason（含未知值、缺 reason）照升級。快照缺／壞＝UNDETERMINED
+#     （snapshot-missing／snapshot-unparsable），不寫成「沒有遺留」。快照內文的 session_id 與這次
+#     SessionEnd 不同（安全化檔名撞名）＝別人的快照，不升級、也不記 UNDETERMINED（只寫 GovLog）。
+#   殘餘：①session 被硬關時 SessionEnd 可能不觸發；②最後一次 Stop 之後才起的背景工作看不到；
+#     ③clear／resume 只觀察不提醒；④升級當下主迴圈的 shell 可能已被 harness 結束（退出時 1.5 秒後強制結束），
+#     仍屬誤報【是否收整棵程序樹未查】。接線必須帶 per-hook timeout（SessionEnd 預設 1.5 秒會被砍）。
+#
+# 【判據（SubagentStop）】
 # 主判據：hook 輸入的 background_tasks（2026-11-07 實測，claude 2.1.319：SubagentStop 與 Stop
-#   輸入都有此欄，元素形如 id／type／status／description／command；欄位只列「該層自己」的背景工作，
-#   子代理遺留只在 SubagentStop 看得到，主迴圈 Stop 當時是 []）。
+#   輸入都有此欄，元素形如 id／type／status／description／command（Stop 的項目用 cmd 欄）；
+#   欄位只列「該層自己」的背景工作，子代理遺留只在 SubagentStop 看得到）。SessionEnd 輸入沒有此欄。
 #   欄位存在且是陣列：非終態（status 不是 completed／failed／killed 等）的元素就是遺留；
 #   空陣列＝這一層沒有遺留，**不**再去翻逐字稿（避免把已收尾的誤報成遺留）。
-# 備援（欄位缺或不是陣列＝schema 缺欄）：讀逐字稿尾段（SubagentStop 讀 agent_transcript_path，
-#   Stop 讀 transcript_path），找「轉背景」的 tool_result，而同一段尾端沒有同 ID 的
-#   通知／TaskStop／TaskOutput 者。三種結構形式（移植自 E1 分析器）：
+# 備援（欄位缺或不是陣列＝schema 缺欄）：讀逐字稿尾段（SubagentStop 讀 agent_transcript_path），
+#   找「轉背景」的 tool_result，而同一段尾端沒有同 ID 的通知／TaskStop／TaskOutput 者。
+#   三種結構形式（移植自 E1 分析器）：
 #     1) 轉背景：「was moved to the background (ID: X)」或「running in background with ID: X」，
 #        且該字串前方 350 字元內有 tool_result；
 #     2) 通知：task-id 標籤後（12 字元內）接同一個 ID；
@@ -39,13 +61,18 @@
 # 所以本檔只做兩件有先例的事：寫狀態檔、寫 stderr 一行（同 record-security-warning 的 SubagentStop 作法）。
 # stderr 是否會到達主迴圈未驗證——注入通道待 M6 在真實 workflow 實測。
 #
-# 【狀態檔】預設 $HOME\.claude\session-state\bg-leftovers.jsonl；BG_LEFTOVER_STATE_DIR 可覆寫，
+# 【狀態檔】預設 $HOME\.claude\session-state\bg-leftovers.jsonl（遺留）、bg-leftovers-watch.jsonl（待觀察）、
+# bg-snapshot-<sid>.json（每 session 一個覆寫式快照）；BG_LEFTOVER_STATE_DIR 可覆寫，
 # 但只在系統暫存目錄之下才採用且路徑上不得有 reparse point（settings 的 env 區塊是隱性不可信輸入）。
-# 同一 (session_id, 背景 ID) 在最近 512 KB 內已記過就不重複記（Stop 每回合都會觸發）。
+# 同一 (session_id, 背景 ID) 在最近 512 KB 內已記過就不重複記。
 # ============================================================
 $ErrorActionPreference = 'SilentlyContinue'
 
 $script:Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+
+# 終態字樣；type 恰為下列字串（區分大小寫、不 trim）的背景工作不算「遺留」
+$script:TerminalStates = @('completed', 'complete', 'done', 'finished', 'exited', 'failed', 'error', 'killed', 'stopped', 'cancelled', 'canceled', 'terminated', 'success', 'succeeded')
+$script:AuxTypes = @('workflow', 'monitor')
 
 # ──────────────────────────────────────────────────────────────
 # 0) 共用小工具（與 record-security-warning.ps1 同款；刻意不 dot-source guard-core，兩層各自獨立降級）
@@ -233,8 +260,45 @@ function Get-RecordedIds([string]$file, [string]$sid) {
     return $set
 }
 
+# background_tasks 陣列 -> 非終態項目清單。
+#   dropAux=$true：type 恰為 workflow／monitor 的字串項目直接略過（SubagentStop 用）。
+#   keepAuxFlag=$true：每項多帶 aux 布林（快照用，SessionEnd 據此不升級 workflow／monitor）。
+#   Stop 的項目用 cmd 欄、其他事件用 command 欄，兩者都認。type 不是字串（含數字、陣列、物件）一律記成
+#   non-string 且不算 aux（寧可多記）。
+function ConvertTo-BgTaskList($bt, [bool]$dropAux, [bool]$keepAuxFlag) {
+    $list = New-Object System.Collections.Generic.List[object]
+    foreach ($t in @($bt)) {
+        if ($null -eq $t) { continue }
+        $id = ''; $rawType = $null; $status = ''; $cmd = ''
+        if ($t -is [string]) { $id = $t }
+        elseif ($t -is [System.Management.Automation.PSCustomObject]) {
+            $id = "$($t.id)"; $rawType = $t.type; $status = "$($t.status)"
+            $cmd = "$($t.command)"
+            if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = "$($t.cmd)" }
+            if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = "$($t.description)" }
+        }
+        else { $id = "$t" }
+        $statusL = $status.Trim().ToLowerInvariant()
+        if ($script:TerminalStates -contains $statusL) { continue }
+        $typeStr = ''
+        if ($rawType -is [string]) { $typeStr = $rawType }
+        elseif ($null -ne $rawType) { $typeStr = 'non-string' }
+        $isAux = ($script:AuxTypes -ccontains $typeStr)
+        if ($dropAux -and $isAux) { continue }
+        $o = [ordered]@{
+            id      = (Format-OneLine $id 64)
+            type    = (Format-OneLine $typeStr 32)
+            status  = (Format-OneLine $status 32)
+            command = (Format-OneLine (Hide-Secrets $cmd) 200)
+        }
+        if ($keepAuxFlag) { $o['aux'] = [bool]$isAux }
+        $list.Add([pscustomobject]$o)
+    }
+    return $list.ToArray()
+}
+
 # ──────────────────────────────────────────────────────────────
-# 2) 備援：從逐字稿尾段找「轉背景而無收尾證據」的 ID
+# 2) 備援：從逐字稿尾段找「轉背景而無收尾證據」的 ID（只給 SubagentStop 用）
 #    回傳 @{ ok=$bool; reason=''; tasks=@(...) }
 # ──────────────────────────────────────────────────────────────
 function Find-TranscriptLeftovers([string]$tpath, [int]$tailBytes) {
@@ -325,7 +389,89 @@ function Find-TranscriptLeftovers([string]$tpath, [int]$tailBytes) {
 }
 
 # ──────────────────────────────────────────────────────────────
-# 3) 主流程
+# 3) 快照（Stop 寫、SessionEnd 讀）
+# ──────────────────────────────────────────────────────────────
+function Get-SnapshotPath {
+    # 檔名只由安全化後的 sid 組成（Get-SafeKey 只留 [A-Za-z0-9_.-]、壓縮連續點、截 80 字），前綴固定，逃不出狀態目錄
+    return (Join-Path $script:StateDir ('bg-snapshot-' + (Get-SafeKey $script:SessionId) + '.json'))
+}
+
+function Invoke-StopSnapshot($data) {
+    $path = Get-SnapshotPath
+    $prop = $data.PSObject.Properties['background_tasks']
+    if ($null -eq $prop -or $null -eq $prop.Value -or -not ($prop.Value -is [array])) {
+        # 欄位缺＝這一回合判不了：舊快照已過期，不得留給 SessionEnd 拿去升級
+        try { if (Test-Path -LiteralPath $path -PathType Leaf) { Remove-Item -LiteralPath $path -Force -ErrorAction Stop } } catch { }
+        Write-Undetermined 'stop-schema-missing'
+        return
+    }
+    $tasks = ConvertTo-BgTaskList @($prop.Value) $false $true
+    $snap = [ordered]@{
+        session_id = $script:SessionId
+        ts         = (Get-Date).ToUniversalTime().ToString('o')
+        tasks      = @($tasks)
+    }
+    try {
+        if (-not (Test-Path -LiteralPath $script:StateDir)) { $null = New-Item -ItemType Directory -Path $script:StateDir -Force }
+        $json = ($snap | ConvertTo-Json -Depth 6 -Compress)
+        [IO.File]::WriteAllText($path, $json + "`n", $script:Utf8NoBom)
+    } catch { Write-Undetermined 'snapshot-write-failed' }
+}
+
+function Invoke-SessionEnd($data) {
+    $reason = Format-OneLine "$($data.reason)" 40
+    $path = Get-SnapshotPath
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { Write-Undetermined 'snapshot-missing'; return }
+    $snap = $null
+    try { $snap = ([IO.File]::ReadAllText($path, $script:Utf8NoBom) | ConvertFrom-Json) } catch { Write-Undetermined 'snapshot-unparsable'; return }
+    $tprop = $null
+    if ($snap -is [System.Management.Automation.PSCustomObject]) { $tprop = $snap.PSObject.Properties['tasks'] }
+    if ($null -eq $tprop -or -not ($tprop.Value -is [array])) { Write-Undetermined 'snapshot-unparsable'; return }
+    if ("$($snap.session_id)" -ne $script:SessionId) {
+        # 別的 session 的快照（安全化檔名撞名）：與本 session 無關，不升級、不算判不了
+        Write-GovLog 'record-bg-leftover' 'skip' 'snapshot-session-mismatch'
+        return
+    }
+    $up = New-Object System.Collections.Generic.List[object]
+    foreach ($t in @($tprop.Value)) {
+        if ($null -eq $t -or $t -isnot [System.Management.Automation.PSCustomObject]) { continue }
+        if ($t.aux -eq $true) { continue }
+        $up.Add([pscustomobject][ordered]@{
+                id      = (Format-OneLine "$($t.id)" 64)
+                type    = (Format-OneLine "$($t.type)" 32)
+                status  = (Format-OneLine "$($t.status)" 32)
+                command = (Format-OneLine (Hide-Secrets "$($t.command)") 200)
+            })
+    }
+    if ($up.Count -eq 0) { return }
+
+    $watchOnly = ($reason -ieq 'clear' -or $reason -ieq 'resume')
+    $leaf = if ($watchOnly) { 'bg-leftovers-watch.jsonl' } else { 'bg-leftovers.jsonl' }
+    $file = Join-Path $script:StateDir $leaf
+    $seen = Get-RecordedIds $file $script:SessionId
+    $fresh = @($up.ToArray() | Where-Object { -not $seen.ContainsKey("$($_.id)") })
+    if ($fresh.Count -eq 0) { return }
+    $row = [ordered]@{
+        ts              = (Get-Date).ToUniversalTime().ToString('o')
+        session_id      = $script:SessionId
+        agent_id        = ''
+        agent_type      = ''
+        hook_event      = $script:EvtName
+        end_reason      = $reason
+        tasks           = @($fresh)
+        claimedFinished = $false
+        source          = 'snapshot'
+    }
+    if (-not (Add-JsonLine $file $row)) { Write-Undetermined 'state-file-write-failed'; return }
+    Write-GovLog 'record-bg-leftover' $(if ($watchOnly) { 'watch' } else { 'record' }) ("event=$($script:EvtName); source=snapshot; reason=$reason; n=$($fresh.Count)")
+    if ($watchOnly) { return }
+    $ids = (@($fresh | ForEach-Object { $_.id }) -join ',')
+    if ($ids.Length -gt 120) { $ids = $ids.Substring(0, 120) }
+    [Console]::Error.WriteLine("[bg-leftover] $($fresh.Count) background task(s) were still not finished when the session ended (ids: $ids; last seen at the previous turn's Stop, may already be gone). Query the terminal state (PID via two paths) before relaying any finished claim. 背景工作未收尾，轉述前先做終態查詢。")
+}
+
+# ──────────────────────────────────────────────────────────────
+# 4) 主流程
 # ──────────────────────────────────────────────────────────────
 function Invoke-Main {
     $script:StateDir = Get-BgStateDir
@@ -343,6 +489,11 @@ function Invoke-Main {
     $script:AgentId = (Format-OneLine "$($data.agent_id)" 80)
     $script:AgentType = (Format-OneLine "$($data.agent_type)" 80)
 
+    # ── 三路分流：SessionEnd 與 Stop 不走下面的即時記錄路徑 ──
+    if ($evt -eq 'SessionEnd') { Invoke-SessionEnd $data; return }
+    if ($evt -eq 'Stop') { Invoke-StopSnapshot $data; return }
+
+    # ── 以下＝SubagentStop（含 hook_event_name 缺漏的舊行為）──
     # ── last_assistant_message：「已結束／自行結束」類宣稱 ──
     $claimed = $false
     try {
@@ -381,28 +532,7 @@ function Invoke-Main {
     $source = ''
     if ($schemaOk) {
         $source = 'background_tasks'
-        $terminal = @('completed', 'complete', 'done', 'finished', 'exited', 'failed', 'error', 'killed', 'stopped', 'cancelled', 'canceled', 'terminated', 'success', 'succeeded')
-        $list = New-Object System.Collections.Generic.List[object]
-        foreach ($t in $bt) {
-            if ($null -eq $t) { continue }
-            $id = ''; $type = ''; $status = ''; $cmd = ''
-            if ($t -is [string]) { $id = $t }
-            elseif ($t -is [System.Management.Automation.PSCustomObject]) {
-                $id = "$($t.id)"; $type = "$($t.type)"; $status = "$($t.status)"
-                $cmd = "$($t.command)"
-                if ([string]::IsNullOrWhiteSpace($cmd)) { $cmd = "$($t.description)" }
-            }
-            else { $id = "$t" }
-            $statusL = $status.Trim().ToLowerInvariant()
-            if ($terminal -contains $statusL) { continue }
-            $list.Add([pscustomobject][ordered]@{
-                    id      = (Format-OneLine $id 64)
-                    type    = (Format-OneLine $type 32)
-                    status  = (Format-OneLine $status 32)
-                    command = (Format-OneLine (Hide-Secrets $cmd) 200)
-                })
-        }
-        $tasks = $list.ToArray()
+        $tasks = ConvertTo-BgTaskList $bt $true $false
     }
     else {
         # ── 備援：逐字稿 ──

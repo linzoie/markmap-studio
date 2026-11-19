@@ -19,7 +19,7 @@
 # 輸出映射（core -> Antigravity）：
 #   deny -> {"decision":"deny", ...}
 #   ask  -> {"decision":"force_ask", ...}   ← 強制每次確認，不吃「本 session 記住」
-#   pass -> {}                              ← 維持現狀，刻意不輸出 "allow"
+#   pass -> {"decision":"allow"}            ← 351c7fb（2026-10-10）起；官方文件 decision 為必填，{} 不足。使用者 2026-11-19 裁定承認現行（取代 09-24「維持 {}」）
 #
 # **core 不可用＝fail-degraded，不是 fail-open、也不是 brick**（2026-07-26 血的教訓）：
 #   同一天發生兩次 fail-open——(a) sync 全域清單漏列共用檔，薄殼載不到核心，全機防護
@@ -60,7 +60,8 @@ if ($env:AGY_HOOK_LOG_DIR -and -not (Test-Path $logDir)) {
 $logPath = Join-Path $logDir 'hook-calls.log'
 # 2026-11-09（F2，乙組總審 #8 S1）：理由與日誌不得回顯金鑰。核心的 Get-GuardVerdict 已遮罩 why；這裡是第二道，
 # 守住不經核心的出口（Deny／ForceAsk 的 reason、hook-calls.log 的 DECISION 行）。核心沒載入時（降級路徑）reason 是固定文字，原樣放行。
-# 殘餘：核心載入前寫的 PARSED／DEGRADED-ASK 兩行仍記指令原文，只受下方 F5 的舊式遮罩（見 openIssues）。
+# 殘餘（next-batch-1 F1 後）：PARSED 已挪到核心載入之後、用核心遮罩；只有核心載入失敗的降級路徑，PARSED／DEGRADED-ASK 兩行仍記指令原文、
+# 只受下方 F5 的舊式遮罩（見 AgfxLogParsed 旁的註解）。
 function AgfxMaskText([string]$s) {
     if ([string]::IsNullOrEmpty($s)) { return $s }
     try { if (Get-Command Protect-GuardSecrets -ErrorAction SilentlyContinue) { return (Protect-GuardSecrets $s) } } catch { }
@@ -172,7 +173,19 @@ if (-not $cmd) {
     Write-HookLog 'NO-COMMANDLINE（欄位名可能與契約不符——見 raw）'
     ForceAsk '⚠️ antigravity-guard 在 stdin JSON 裡找不到 toolCall.args.CommandLine —— 無法取得指令內容，本次未經安全判定。欄位名可能已與契約不符'
 }
-Write-HookLog "PARSED cmd='$cmd' stepIdx=$($data.stepIdx)"
+# 2026-11-18（next-batch-1 F1）：PARSED 行（記指令原文）不在這裡寫——此刻核心的遮罩函式還沒載入，只剩 Write-HookLog 的舊 F5 遮罩
+# （sk-ant／JWT／AIza／PEM 開頭都遮不到）。改成核心 dot-source 成功之後才寫（下方 AgfxLogParsed 呼叫點），用核心的 Protect-GuardSecrets；
+# 核心載入失敗的降級路徑（Invoke-Degraded）才在判定前補寫，只受舊 F5。**殘餘（明寫）**：降級路徑下 PARSED 與 DEGRADED-ASK 兩行
+# 仍可能含 F5 遮不到形狀的金鑰明文（本機 log、已 gitignore）；刻意不在本檔複製第二份金鑰 regex，核心修好即恢復完整遮罩。
+# 金絲雀 Deny 發生在 PARSED 之前，其 DECISION 行只記固定文字；不會因此少記診斷（金絲雀本身就是診斷）。
+$script:AgfxParsedLogged = $false
+function AgfxLogParsed {
+    if ($script:AgfxParsedLogged) { return }
+    $script:AgfxParsedLogged = $true
+    # 先只遮指令本身再組行：私鑰區塊沒有 END 時核心會一路遮到字串結尾，整行一起遮會把後面的 stepIdx 一併吃掉
+    $maskedCmd = AgfxMaskText $cmd
+    Write-HookLog "PARSED cmd='$maskedCmd' stepIdx=$($data.stepIdx)"
+}
 
 # ── 金絲雀（保留供部署後實測 hook 真的有生效）──
 # 刻意留在 shim、且擺在呼叫 core **之前**：下沉到 core 就失去「Antigravity 這一側的
@@ -210,6 +223,7 @@ $degradedDeny = @(
 )
 
 function Invoke-Degraded([string]$why) {
+    AgfxLogParsed   # 核心不可用：PARSED 在此補寫（只受舊 F5 遮罩；核心已載入但判定失敗時，早已在上方寫過並用核心遮罩，這裡會略過）
     Write-HookLog "CORE-UNAVAILABLE: $why"
     foreach ($p in $degradedDeny) {
         if ($cmd -imatch $p.rx) {
@@ -250,6 +264,9 @@ try { $null = . $corePath } catch { Invoke-Degraded "guard-core.ps1 載入失敗
 if (-not (Get-Command Get-GuardVerdict -ErrorAction SilentlyContinue)) {
     Invoke-Degraded 'guard-core.ps1 已載入但未定義 Get-GuardVerdict（檔案可能損毀或被截斷）'
 }
+
+# 核心已載入、Protect-GuardSecrets 可用：此刻才寫 PARSED（F1），金鑰形狀由核心遮罩
+AgfxLogParsed
 
 # ── 4) 委派判定，映射到 Antigravity 輸出 ──
 $verdict = Get-GuardVerdict -Command $cmd

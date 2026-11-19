@@ -1631,7 +1631,7 @@ function Get-GuardVerdictSingleCore {
         # 【比對起點不含被接回的分號（總審 F4 第二輪 V1，2026-11-09）】被接回的續行分號只准出現在 lookahead 的字元類裡、不當比對起點（起點為 ^、不被續行接回的 ;、&、|）；
         # 否則每個被接回的分號都成了新起點、每個起點都掃到片段結尾＝二次方，600 行續行的無害 heredoc 會撞 Test-GuardRx 的 500 ms 上限、逾時當命中而誤 deny。
         # 耗時由 test-guard-perf.ps1 的續行 300／600 行案例釘住（還原成只有 [;&|] 起點的 5f14b36 版時 600 行案例紅）。
-        @{ rx = '(?:^|(?<![\\`] );|[&|])(?=(?:[^;&|]|(?<=[\\`] );)*?\b(?:chrome|chromium|msedge|brave)(?:\.exe)?\b)(?=(?:[^;&|]|(?<=[\\`] );)*?(?:^|[^\w-])(?:--|-|/)remote-debugging-port\b)'; why = '以偵錯埠啟動瀏覽器（2026-10-09 Defender 判竊密木馬並終止整個 claude.exe）：截圖改用 Chrome CLI --screenshot（--headless=new --screenshot=檔 --window-size=… 並帶專屬 --user-data-dir），互動用同源外框頁；說明見 memory defender-cmdline-ml-false-positive 第二型。只是要提到這些字：改用 Grep／Read 工具或 git commit -F 檔案' },
+        # （規則本體 2026-11-18 起移到本陣列最後、R1／R1b 與跨 session 兩條之後，理由與 B2 變數形狀見該處註解。）
         # R1：with-child 登記目錄＋寫入動詞同時出現 → deny（偽造登記；2026-10-10 攻擊語料 registry-1～6 現況零規則全放行）。
         # 階段 1 審查（major／minor）後的形狀：①兩個目錄字面 session-state 與 with-child **各自**出現即可（擋 cd 進 session-state 再對
         # with-child/ 相對路徑寫入）；②寫入動詞集合與 Test-WfDirWriteWhole 的 verbRx 對齊再加刪除／改名／sed -i／writeFileSync；
@@ -1651,7 +1651,19 @@ function Get-GuardVerdictSingleCore {
         # 殘餘風險（字串層結構性）：旗標或變數名用變數拼接／base64／寫成腳本檔再執行會漏；agent 仍可直接讀登記 JSON。
         # 這層只是增加摩擦，配合 cross-session-audit.log 事後可追查；真正的邊界是使用者在對話裡的同意。
         @{ rx = '^(?=[\s\S]*with-child(?:\.mjs)?[''"]?\s+[''"]?stop(?![\w-]))(?=[\s\S]*cross[^a-z0-9;&|]{0,8}session)'; why = 'with-child.mjs stop 帶 --cross-session（跨 session 終止他人登記的程序）：agent 不得自行加旗標。請在對話裡列出 PID、擁有者 session 與理由，由使用者在自己的終端機親手執行' },
-        @{ rx = '^(?=[\s\S]*with-child(?:\.mjs)?[''"]?\s+[''"]?stop(?![\w-]))(?=[\s\S]*claude_code_session_id)'; why = 'with-child.mjs stop 與 CLAUDE_CODE_SESSION_ID 出現在同一串指令（設定／清除／抄寫身分變數冒名繞過 session 比對）：agent 不得改寫呼叫者身分。被拒請在對話裡列出 PID、擁有者 session 與理由，由使用者在自己的終端機親手執行' }
+        @{ rx = '^(?=[\s\S]*with-child(?:\.mjs)?[''"]?\s+[''"]?stop(?![\w-]))(?=[\s\S]*claude_code_session_id)'; why = 'with-child.mjs stop 與 CLAUDE_CODE_SESSION_ID 出現在同一串指令（設定／清除／抄寫身分變數冒名繞過 session 比對）：agent 不得改寫呼叫者身分。被拒請在對話裡列出 PID、擁有者 session 與理由，由使用者在自己的終端機親手執行' },
+        # 偵錯埠啟動瀏覽器（規則說明、事故與殘餘風險見上方「偵錯埠啟動瀏覽器」註解塊；規格 2026-11-08-remote-debugging-guard.md）。
+        # 【位置：陣列最後（2026-11-18 next-batch B1，總審 F4③）】原本排在 R1 前面。偵錯埠規則的 why 不含「程序終止｜with-child 登記目錄｜WITH_CHILD_DIR」，
+        #   guard-bash 的 Deny 靠 why 類別決定要不要計 D5；混合指令（寫 with-child 登記目錄＋偵錯埠啟動瀏覽器）先命中本規則就不計 D5，
+        #   子代理可反覆偽造登記而不寫 taint。移到 R1／R1b 之後＝混合指令先吃 R1 的 why、照常計 D5。
+        #   殘餘：混合指令只顯示 R1 的理由、看不到偵錯埠改道說明（改掉登記目錄寫入重跑後才會看到偵錯埠那條；一輪重試收斂）。
+        #   評估「R1 理由後附另命中偵錯埠規則一句」未做：why 字串是 guard-bash／antigravity-guard 判類別的鍵，附加句要同步動兩支轉接層與其測試，
+        #   換到的只是少一輪重試。R1 白名單放行的形狀（說明文字含兩個登記字面）＋偵錯埠旗標：R1 的 hit 被白名單翻成 false、落到本規則 deny、仍不計 D5（測試 16d.6）。
+        # 【B2 變數形狀（2026-11-18）】瀏覽器路徑放在變數（$chromePath、$env:CHROME_PATH、${msedgeExe}、bash 的 $CHROME_BIN）時，名字後面接識別字元，
+        #   原本 \b 不成立而漏擋。第二個選擇支：瀏覽器名**緊接在** $、$env:、${、${env: 之後，後面允許接英數或底線；識別字裡含 webview2 或 driver 就排除
+        #   （msedgewebview2、chromedriver 是 1617 行起註解的刻意放行，變數名 $msedgewebview2Path／$env:CHROMEDRIVER_PATH 同樣放行）。
+        #   殘餘（已知）：變數名不含瀏覽器字樣（$exe）字面比對看不到；$script:／$global: 等範圍前綴下的變數名未涵蓋；與執行期組字同一邊界。
+        @{ rx = '(?:^|(?<![\\`] );|[&|])(?=(?:[^;&|]|(?<=[\\`] );)*?(?:\b(?:chrome|chromium|msedge|brave)(?:\.exe)?\b|(?<=\$|\$env:|\$\{|\$\{env:)(?:chrome|chromium|msedge|brave)(?![A-Za-z0-9_]*(?:webview2|driver))))(?=(?:[^;&|]|(?<=[\\`] );)*?(?:^|[^\w-])(?:--|-|/)remote-debugging-port\b)'; why = '以偵錯埠啟動瀏覽器（2026-10-09 Defender 判竊密木馬並終止整個 claude.exe）：截圖改用 Chrome CLI --screenshot（--headless=new --screenshot=檔 --window-size=… 並帶專屬 --user-data-dir），互動用同源外框頁；說明見 memory defender-cmdline-ml-false-positive 第二型。只是要提到這些字：改用 Grep／Read 工具或 git commit -F 檔案' }
     )
     $script:R1WlShape = $null
     foreach ($p in $denyPatterns) {

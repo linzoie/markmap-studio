@@ -173,6 +173,119 @@ if (Test-PathHasWithChildRegistry $fp) {
     exit 2
 }
 
+# 2026-11-18（next-batch-1 C2，計畫書 §3 C2／§9.4）：測試檔上鎖。
+# 主迴圈在 RED 測試定稿後用 .governance/bin/test-lock.mjs lock 把測試檔上鎖；子代理（stdin 帶 agent_id／subagent_id，
+# 判斷同 guard-bash 的 D5 計數）對上鎖路徑做 Edit／Write／MultiEdit 一律 DENY（沿用上面兩段的 exit 2＋stderr [BLOCKED]＋GovLog deny）。
+# 主迴圈（沒有 agent_id）不受限；需要改測試時，子代理把「要改的檔、改什麼、理由」寫進回傳的 testChangeRequests，由主迴圈決定。
+# 鎖檔：<鎖目錄>\<session_id>.json（對所有 session 生效的是 _any.json）；鎖目錄預設 $HOME\.claude\session-state\test-locks，
+#   TEST_LOCK_STATE_DIR 可覆寫，但只在 %TEMP% 之下且路徑上沒有 junction／symlink 才採用（同 BG_LEFTOVER_STATE_DIR 的接縫），否則忽略。
+# 檔案格式 { version:1, session, created, entries:[ { path, real, dir } ] }；path／real 兩種寫法都比對（real＝工具上鎖當下解掉
+#   junction／symlink／8.3 的真實路徑），dir=true 代表整個目錄樹。
+# 輸入路徑比對前先正規化：去 \\?\ 前綴、/c/ 風格轉 c:/、相對路徑以 stdin 的 cwd 為底、GetFullPath 收斂 .. 與重複斜線，
+#   再用同一個 Get-GuardNormalizedPath（小寫、正斜線、元件尾點／尾空白），並另外跟穿 junction／symlink 後的真實路徑比一次。
+# 鎖檔壞掉（讀不到、不是合法 JSON、version 不是 1）：對子代理 DENY（fail-visible，不靜默放行）；主迴圈照放行。
+# 殘餘（Q-T 已裁定）：Bash／PowerShell 寫檔不經本 hook；8.3 短名靠 GetFullPath 對含 ~ 路徑的內建展開（本機磁碟關閉 8.3，無法實測）。
+function Get-TestLockAgentId($d) {
+    foreach ($cand in @("$($d.agent_id)", "$($d.subagent_id)")) { if (-not [string]::IsNullOrWhiteSpace($cand)) { return $cand } }
+    return ''
+}
+function Get-TestLockDir {
+    $default = Join-Path $HOME '.claude\session-state\test-locks'
+    if (-not $env:TEST_LOCK_STATE_DIR) { return $default }
+    try {
+        $c = [IO.Path]::GetFullPath($env:TEST_LOCK_STATE_DIR); $tr = [IO.Path]::GetFullPath(([IO.Path]::GetTempPath()))
+        if ($c.StartsWith($tr, [System.StringComparison]::OrdinalIgnoreCase) -and (Test-NoReparseUnderTemp $c $tr)) { return $c }
+    } catch { }
+    return $default
+}
+function Get-TestLockFullPath([string]$p, [string]$cwd) {
+    $s = $p
+    if ($s -match '^\\\\\?\\UNC\\') { $s = '\\' + $s.Substring(8) }
+    elseif ($s.StartsWith('\\?\') -or $s.StartsWith('//?/')) { $s = $s.Substring(4) }
+    if ($s -match '^/([A-Za-z])(/|$)') { $s = $Matches[1] + ':' + $s.Substring(2) }
+    if (-not [IO.Path]::IsPathRooted($s) -and $cwd -and [IO.Path]::IsPathRooted($cwd)) { return [IO.Path]::GetFullPath($s, $cwd) }
+    return [IO.Path]::GetFullPath($s)
+}
+function Resolve-TestLockReal([string]$full) {
+    try {
+        $root = [IO.Path]::GetPathRoot($full)
+        $cur = $root
+        foreach ($part in $full.Substring($root.Length).Split([char[]]@('\', '/'), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+            $next = [IO.Path]::Combine($cur, $part)
+            if (Test-Path -LiteralPath $next) {
+                $item = Get-Item -LiteralPath $next -Force
+                if ($item -and $item.LinkType) { $t = $item.ResolveLinkTarget($true); if ($t) { $next = $t.FullName } }
+            }
+            $cur = $next
+        }
+        return [IO.Path]::GetFullPath($cur)
+    } catch { return $full }
+}
+function Stop-TestLockBroken([string]$lockFile, [string]$why) {
+    Write-GovLog 'guard-write' 'deny' "測試檔鎖的鎖檔無法判定（$why）" "$fp"
+    [Console]::Error.WriteLine("[BLOCKED] guard-write 攔截：測試檔鎖的鎖檔讀不到或格式不對（$why：$lockFile），無法判定這個檔案有沒有被上鎖，子代理的寫入一律拒絕（fail-visible）。請停手，把情況寫進回傳的 testChangeRequests／concerns 交主迴圈處理。")
+    [Console]::Error.WriteLine("  檔案：$fp")
+    exit 2
+}
+# 2026-11-18（C2 fix-1，審查 B1）：鎖目錄本身受保護。鎖檔只准 test-lock.mjs（node）寫；子代理與主迴圈的 Edit／Write／MultiEdit 一律 DENY。
+# 缺口：子代理先 Write 一個空 entries 的鎖檔，下一個 Edit 就能改上鎖檔（解鎖）。比對 $HOME 預設鎖目錄與 TEST_LOCK_STATE_DIR 解析後的鎖目錄，
+# 候選路徑：原字串、完整路徑（收斂 .. 與相對路徑）、穿 junction／symlink 後的真實路徑；比對前去掉 NTFS 資料流後綴（::$DATA）。
+# 殘餘（Q-T 已裁定）：Bash／PowerShell 直接寫檔或刪鎖檔、或在殼裡跑 test-lock.mjs unlock，仍不經本 hook。
+function Test-PathInTestLockDir([string]$path, [string]$cwd) {
+    if ([string]::IsNullOrWhiteSpace($path)) { return $false }
+    $p = $path -replace '::\$[^\\/]*$', ''
+    $full = $p
+    try { $full = Get-TestLockFullPath $p $cwd } catch { }
+    $real = $full
+    try { $real = Resolve-TestLockReal $full } catch { }
+    $eff = (Get-GuardNormalizedPath (Get-TestLockDir)).TrimEnd('/')
+    foreach ($c in @($p, $full, $real)) {
+        $n = Get-GuardNormalizedPath $c
+        if ($n -match '(^|/)session-state/test-locks(/|$)') { return $true }
+        if ($eff -and ($n -eq $eff -or $n.StartsWith($eff + '/'))) { return $true }
+    }
+    return $false
+}
+if (Test-PathInTestLockDir "$fp" "$($data.cwd)") {
+    Write-GovLog 'guard-write' 'deny' '寫入測試檔鎖目錄（session-state/test-locks）' "$fp"
+    [Console]::Error.WriteLine('[BLOCKED] guard-write 攔截：測試檔鎖目錄（session-state/test-locks）只准 .governance/bin/test-lock.mjs 寫入，Write/Edit/MultiEdit 一律拒絕（改寫鎖檔＝自我解鎖）。需要改上鎖的測試時，把要改的檔、改什麼、理由寫進回傳的 testChangeRequests，由主迴圈決定。')
+    [Console]::Error.WriteLine("  檔案：$fp")
+    exit 2
+}
+
+if (Get-TestLockAgentId $data) {
+    $tlDir = Get-TestLockDir
+    $tlFiles = @()
+    if ("$($data.session_id)" -match '^[A-Za-z0-9_-]{1,64}$') { $tlFiles += (Join-Path $tlDir "$($data.session_id).json") }
+    $tlFiles += (Join-Path $tlDir '_any.json')
+    $tlCands = $null
+    foreach ($tlFile in $tlFiles) {
+        if (-not (Test-Path -LiteralPath $tlFile -PathType Leaf)) { continue }
+        $tlObj = $null
+        try { $tlObj = (Get-Content -LiteralPath $tlFile -Raw -Encoding UTF8) | ConvertFrom-Json -ErrorAction Stop } catch { Stop-TestLockBroken $tlFile '不是合法 JSON' }
+        if ($null -eq $tlObj -or "$($tlObj.version)" -ne '1' -or $null -eq $tlObj.PSObject.Properties['entries']) { Stop-TestLockBroken $tlFile '缺 version=1 或 entries' }
+        if ($null -eq $tlCands) {
+            $tlFull = $null
+            try { $tlFull = Get-TestLockFullPath "$fp" "$($data.cwd)" } catch { $tlFull = "$fp" }
+            $tlCands = @((Get-GuardNormalizedPath $tlFull), (Get-GuardNormalizedPath (Resolve-TestLockReal $tlFull))) | Select-Object -Unique
+        }
+        foreach ($tlEntry in @($tlObj.entries)) {
+            if ($null -eq $tlEntry) { continue }
+            $tlForms = @("$($tlEntry.path)", "$($tlEntry.real)") | Where-Object { $_ } | ForEach-Object { (Get-GuardNormalizedPath $_).TrimEnd('/') } | Select-Object -Unique
+            foreach ($e in $tlForms) {
+                foreach ($c in $tlCands) {
+                    if ($c -eq $e -or ($tlEntry.dir -eq $true -and $c.StartsWith($e + '/'))) {
+                        Write-GovLog 'guard-write' 'deny' '子代理寫入已上鎖的測試檔（test-lock）' "$fp"
+                        [Console]::Error.WriteLine('[BLOCKED] guard-write 攔截：這個檔案已被主迴圈上鎖（測試檔鎖，.governance/bin/test-lock.mjs），子代理不得 Edit／Write／MultiEdit。需要改測試時不要自己改：把要改的檔、改什麼、理由寫進回傳的 testChangeRequests，由主迴圈決定。')
+                        [Console]::Error.WriteLine("  檔案：$fp")
+                        exit 2
+                    }
+                }
+            }
+        }
+    }
+}
+
 if ($fp -imatch $protectRx) {
     Write-GovLog 'guard-write' 'ask' '寫入受保護治理檔' "$fp"
     $reason = "使用者硬規則「保護治理層自身」：正在寫入治理檔（hook/settings/agent/governance）" +
