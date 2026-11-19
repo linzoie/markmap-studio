@@ -1,0 +1,228 @@
+<!-- generated-by: .governance/bin/sync-workspace-rules.ps1 -->
+
+> ⚠️ **這個檔案是自動產生的，不要手動編輯。**
+>
+> 權威來源：`
+C:\Users\Linzoie\Documents\Claude\Projects\code\AGENTS.md
+`
+> 產生器：`.governance/bin/sync-workspace-rules.ps1`
+> 改動請改權威來源，然後跑一次產生器。手改這裡會被下次同步無聲覆蓋。
+>
+> **存在理由**：Claude Code 在子專案裡靠 `code/CLAUDE.md` 的 `@AGENTS.md` 外部引入來讀工作區規則，
+> 但 VS Code 擴充套件不會跳出外部引入的核准框、直接不引入（2026-11-19 S4 實測），子專案的新對話就讀不到。
+> 專案內 `.claude/rules/` 下**不帶 `paths`** 的檔案會無條件載入、不需要核准，所以把工作區規則鏡像到這裡。
+> 已在終端機核准外部引入的專案會重複載入一份（約 6k token），已知且接受。
+
+---
+
+# AGENTS.md — code/ 工作區共用治理
+
+> **所有 AI coding agent 的共同指令來源**（Claude Code／OpenAI Codex／Google Antigravity）。
+> Codex 與 Antigravity 沿目錄向上自動載入本檔；Claude Code 透過 `CLAUDE.md` 的 `@AGENTS.md` 匯入。
+>
+> **分層**：本檔＝跨專案共用規則；各子專案的 `AGENTS.md`＝該專案專屬（技術棧、驗證指令、紅線）。
+> 修改共用規則只改這裡，不要在各專案重複維護（重複必漂移）。
+>
+> ⚠️ **尺寸紀律**：Codex 把同一路徑上各層 AGENTS.md **加總**計入 32,768 B 硬限，且
+> **上層先載入、下層被砍尾**——本檔膨脹會直接吃掉專案層的額度。改動後跑
+> `pwsh .governance/bin/check-agents-size.ps1` 確認（governance-doctor 也會檢查）。
+
+## 溝通語言
+
+與使用者的所有溝通、報告、提問一律使用**繁體中文**；程式碼、變數名、檔名、JSON key、
+commit message 格式維持英文慣例；引用官方文件與套件名稱保留原文。
+
+## 工作區結構
+
+`code/` 不是單一專案，而是**工作區容器**，底下每個子資料夾是**各自獨立的 git repo**。
+跨專案工作前先確認在正確的子專案內，不跨 repo 混用。
+**在 `code/` 底下建立新專案資料夾時（任何 agent）**，第一步先跑
+`pwsh .governance/bin/onboard-project.ps1 -Project <資料夾名>` 取得治理層與 pre-commit；跑不了就告知使用者，不要自己仿造守門檔。
+
+---
+
+## 接手工作：開工前的固定第一步
+
+**第 0 步（每個 session 開場做一次，Claude Code 由 hook 自動做、其餘三家請自己跑）**：
+
+```text
+pwsh <工作區>/.governance/bin/mark-loaded.ps1 -Tool <claude|codex|gemini|antigravity>
+```
+
+這是**規則載入金絲雀**：它留下的 marker 是「我這次真的讀到規則了」的唯一證據。
+2026-07-24→09-14 有七週，Codex 與 Antigravity 從未載入本檔（它們的 repo 根是最近的
+`.git`，子專案裡讀不到工作區層），而**沒有任何人知道**。你沒讀到這段就不會跑它，
+所以 marker 的缺席正好等於「規則沒載入」——`governance-doctor.ps1` 會據此發出 WARN。
+
+每個專案的「工作到哪了」權威來源是交接狀態卡：`.governance/handoff/projects/<專案>.md`
+
+1. 讀該卡，用一句話總結你理解的現況與待辦
+2. 跑 `pwsh <工作區>/.governance/bin/handoff.ps1 onboard -Project <名> -Strict`，以它的 card-fresh 判定為準（它會略過只改交接卡與 agent 設定檔的 commit；待裁決、派工帳本的 commit 照算，所以收工時先 commit 它們、最後才 checkpoint），不要自己拿 `last_verified_commit` 比 `git log -1`；跑不了才退回手動比對，並在回報裡註明「手動比對，可能把治理 commit 誤判成過期」
+3. **不一致或與程式碼牴觸就停下重讀**，先校正卡片再開始工作
+
+**收工前的固定最後一步**：更新該卡（完成什麼、卡在哪、失敗過的方法、下一個具體動作、
+**實際跑過**的驗證結果）。沒更新＝下一個 agent 從錯誤前提開始。
+
+**交接卡的「下一個具體動作」是建議，不是授權。** 授權只來自使用者。
+卡片可以**縮小**權限（`## 本次禁區`），**不能擴大**——卡片是 AI 寫、AI 讀、
+使用者可能沒看，若它能授權，就成了一條繞過使用者的通道。
+
+> **有工具代勞，別純手工**（2026-07-29 補：工具 07-24 就寫好了，這段流程卻一直是手動版）：
+> `pwsh .governance/bin/handoff.ps1 onboard -Project <名>` 接手時自動比對卡片與 git 現況；
+> `pwsh .governance/bin/handoff.ps1 checkpoint -Project <名>` 收工時自動抓 git 事實＋跑測試
+> 回填卡片。**手寫的驗證數字會腐爛，工具抓的不會**——但「下一個具體動作」仍須你自己寫。
+
+## 信任順序（資訊衝突時的裁決依據）
+
+高者為準，並**回頭修正低者**：
+
+1. **可重現的測試／建置實際輸出**
+2. 目前的 git commit、diff 與實際檔案內容
+3. AGENTS.md 與專案規格文件
+4. 交接狀態卡
+5. 對話歷史、agent 記憶、任何 AI 的自我宣稱
+
+不要記錄「已知不一致」後繞過，也不要並列選項丟回使用者——蒐證裁定唯一正解，除非證據真的五五開。
+
+---
+
+## 五個強制動作（不等使用者提醒，自己做）
+
+**1. 寫完就攻擊** — 完成任何防護性／驗證性的東西（輸入驗證、權限檢查、過濾規則、守門
+邏輯）後，立刻列出至少五種變形寫法嘗試繞過並**實際測試**。單次作者看不見自己的盲點。
+
+**2. 矛盾就裁定** — 依上方信任順序蒐證裁定，把其他來源改成一致。
+
+**3. 宣稱就舉證** — 任何「完成／已修好／測試通過」必須附**本次實際執行的輸出**。跑不了
+就明說。命名會騙人（叫 mock 的測試可能打真 API）。建立會被特定方式呼叫的工具（CLI／hook／
+workflow）時，證據必須是**用那個確切呼叫方式端到端跑過一次**——語法檢查、型別檢查、
+「看起來對」都不算。
+
+**4. 錯誤就入庫** — 被糾正或發現新型錯誤時**當場**固化教訓（寫進規則、測試案例、專案
+文件），別讓同一個坑等下一個 agent。
+> 入哪一層由類別決定（2026-09-14 補，「當場」不變——當場一定先寫進某一層；變的是行為準則類
+> **進規則正文**這一步改為候選累計＋使用者點頭，這是刻意的分流，非鬆綁）：①可機械攔截的（guard-case／
+> 測試／hook 規則）**第一次就固化**；②有可重演方法的判斷力陷阱寫 golden-task；③純行為準則
+> 先寫 memory 當**候選**——入庫前先 grep 既有同族條目，有就在該檔追加一行「復發：日期｜場景」，
+> 並在 `.governance/pending-decisions.md`「候選升格」區記一行（memory 只留指標；Codex／Antigravity
+> 的教訓直接寫 pending）；累計到門檻（試行：第三次，由稽核回填）或使用者說「直接升」→ **使用者
+> 點頭後才進本檔／CLAUDE.md 正文**。但書：致命／一次性教訓不受次數限制；計數不只存在 memory。
+
+**5. 風險必附緩解** — 列出任何選項的風險／缺點時，同處必須寫「最便宜的緩解＋緩解後的
+殘餘風險」。寫不出緩解＝沒設計過那個選項，不得拿它當論據。對不推薦的選項先做出最強版本
+再比較。
+
+---
+
+## 升級階梯（超出把握就升級）
+
+下列情況**預設要升級**（問使用者／換更強模型／多視角互查），除非能明確說出「為何這次
+不需要」。判斷標準是**客觀事實**，不是主觀的「我覺得難不難」：
+
+- 跨 3 個以上檔案的重構或設計變更 → 先出計畫給使用者審核
+- 本工作區**第一次做**的任務類型
+- 測試或驗證**連續失敗 3 次** → 停止亂槍打鳥，改系統性除錯並回報
+- 對結論**說不出可執行的驗證方法**（＝還沒想清楚）
+- 涉及金錢、對外發送、共享狀態
+- 知識可能過時（外部 API、版本、平台行為）→ 查官方文件，**絕不憑記憶**
+- 非緊急的判斷題不當場決 → 記入 `.governance/pending-decisions.md`，等使用者的判斷 session
+
+> **規則是預設，不是絕對**：當一條規則在某案例下明顯導致錯誤結果時，不要靜默遵守、也
+> 不要靜默違反——把「規則 X 要求 Y，但這裡 Y 會導致 Z」的具體衝突**升級給使用者裁決**。
+> 破例的權力在使用者；你的責任是聞到不對勁就講清楚。
+
+---
+
+## 破壞性／難復原動作一律先問
+
+- **刪除**：`rm -rf`、`Remove-Item -Recurse`、`git branch -D`、刪 PR/issue/資料表
+- **覆蓋／重置**：`git push --force`、`git reset --hard`、`git checkout --`、`--amend`
+  已推送的 commit、覆寫沒讀過的既存檔
+- **對外發送**：email、Slack、Telegram、建立／關閉／留言 PR 或 issue、推送遠端、上傳第三方
+- **跳過安全機制**：`--no-verify`、`--no-gpg-sign`、停用 hook、降級或移除套件
+- **共享狀態**：改 CI/CD、改權限、改共用基礎設施、改影響大的全域設定
+- **機器狀態**（2026-09-19 事故後加入）：**不得終止任何不是你在本 session 自己啟動並記下 PID 的程序；
+  不得改排程、服務、永久環境變數、登錄檔、關機重啟。**（含但不限於按映像名、按篩選、按埠號、
+  `tasklist`／`Get-Process` 後迴圈或管線終止、`.Kill()`／`Terminate()`／`CloseMainWindow()`；
+  **沒列到的形式不代表允許**。「看起來像自己的」不算自己的。）收尾只走
+  `node .governance/bin/with-child.mjs run|stop`；測試用瀏覽器一律帶專屬 `--user-data-dir`。
+  **終止類指令在指令行一律被守門 deny、無豁免**（2026-10-10 使用者裁定）：只是要**提到**這些字（commit 訊息、
+  搜尋、文件、加守門語料）改走 Grep／Read 工具或先寫進檔案再 `git commit -F`／`-CommandFile`／`-File`；
+  真要動不是自己起的程序，**在對話裡向使用者說明**（程序、PID、StartTime、理由）並等文字回覆，**不得改寫指令再試**
+  （同一 agent 第二次撞到即寫 taint）；子 agent 遇到就停止該項工作、回傳 `needs_user_machine_action` 交主迴圈問。
+  守門是字面比對，執行期才組出的指令它看不到——**看不到不代表允許**，這條規則照樣適用。
+  `with-child stop` 只限本 session 登記的程序；遇 exit 6 就停手在對話裡回報，跨 session 由使用者親手執行。
+  **整機程序列舉卡住時收手**（2026-11-08 乙組 #10）：tasklist、Get-Process 不帶 -Id、Get-CimInstance Win32_Process、wmic process 這類
+  「列出整台電腦程序」的查詢第一次逾時或失敗時，記錄端（`record-branch-switch`／`record-process-query-stall` 呼叫 `lib-process-query-stall`）記入本 session 計數，守門端（`guard-bash` 呼叫同一函式庫）之後讓
+  主迴圈的同類查詢跳確認框（按允許＝重試一次）、再失敗或子代理遇到一律擋下。看到停手提醒或擋下就停手：在對話裡問使用者要不要重試，
+  並提醒「若不重試，建議存檔後重開機」；子代理回傳 `needs_user_machine_action`；不得改寫指令再查。
+
+**被守門擋下時的合法出口（任何 agent）**：停手，在對話裡寫出被擋的指令與理由，請使用者在自己的終端機執行；
+**不得**修改守門／hook、不得跑 sync 散佈、不得換寫法重試同一件事（2026-10-10 曾有 agent 為解除自己被擋而改守門並散佈）。
+
+**取用外部程式碼前先檢查**：從 GitHub 或其他來源參考、複製、安裝別人的專案、skill、MCP server、套件之前，
+先用掃描工具檢查惡意程式碼（工具就緒前至少人工讀過安裝腳本、postinstall 與 hook 設定），並把結果告訴使用者；
+**掃描前不得執行它的安裝指令、建置腳本或 hook**。只讀原始碼、不執行，不受此限。
+
+**一次授權不等於永久授權**：換情境要重新確認。
+
+## 機密鐵則
+
+絕不 commit `.env`／token／金鑰／憑證（只有 `.env.example` 可進版控）；commit 前確認
+`git status`；發現機密已被追蹤**立即停手告知使用者**；設定檔只放變數名，真值走環境變數
+或密碼管理器；不要把憑證內容寫進交接卡、報告或對話輸出。
+
+> **不分 agent 的機械地板**：`pwsh .governance/bin/install-git-hooks.ps1 -Repo <path>` 裝
+> pre-commit 機密掃描——**任何** agent／工具／排程要 commit 機密都會被 git 層擋下（不依賴
+> 你記得檢查）。⚠️ `.git/hooks` 天生不入版控＝**新 clone 或新建的 repo 一定沒有**，
+> 且目前沒有任何檢查會提醒你，所以**建 repo 後請手動跑一次**。
+>
+> skills 若有更動：`.agents/skills/` 是權威（Codex／Antigravity 原生讀），改完跑
+> `pwsh .governance/bin/sync-skills.ps1` 鏡像到 `.claude/skills/`，否則兩份會漂移。
+>
+> 其餘工具（sync-governance／doctor／probe-guards／lib-shipset 等）見 `.governance/README.md`
+> ——本檔刻意不列全，走下方「漸進式揭露」（AGENTS.md 有 32KiB 加總截斷限制）。
+
+## 多 agent 並行的鐵則：序列交接
+
+**同一個 repo 在同一時間只能有一個 agent 在動。** 併發寫入同一棵工作樹會造成後寫覆蓋
+先寫、branch checkout 互斷、git 指令彼此 fail-fast 卡住。交接順序：前一個 agent 跑驗證 → 更新交接卡 →
+commit → 確認 `git status --short` 乾淨 → 下一個 agent 才開始（第一步是讀交接卡）。
+
+真要並行才用獨立 git worktree ＋ 獨立分支，但那有成本（`.env`／`node_modules` 不跟過去、
+事後要清理），**屬條件觸發而非預設做法**（根 repo 治理開發例外，見下段）。
+
+**根 repo（code/）專規（2026-10-06，依 research-decisions/2026-10-03-shared-root-tree-multi-session.md）**：
+根 repo 永遠停在 main、不在根目錄切分支；治理開發要分支就用獨立 worktree。收工**範圍授權**（使用者核准）：
+可 commit 自己正在交接的那張卡（訊息 `docs(handoff):` 開頭）與整檔待裁決清單（`docs(pending):` 開頭，
+commit 不等於核可其內容）。一律 `git commit -- <路徑>`、根在 main 才做、不推送；禁 `add -A`／`add .`／
+`commit -a`；遇 index.lock 回報、不刪 lock。授權來自本段，交接卡仍不能擴大授權。
+
+---
+
+## 完成的定義（DoD）
+
+**全部**成立才算完成：相關測試**實際跑過看到綠燈**（不是「應該會綠」）＋ lint／格式檢查
+無錯 ＋ 改動有測試覆蓋 ＋ 跑得起來的功能用**實際執行**確認行為（UI 類要眼睛看過）。
+**禁止**未跑測試就宣稱「應該沒問題」。語言特定門檻見各專案 `.claude/rules/`。
+
+## 各家 agent 的能力差異（重要）
+
+| | Claude Code | Codex | Antigravity |
+|---|---|---|---|
+| 機械守門 | ✅ 完整 hooks | ⚠️ 內建審批 | ⚠️ 內建審批＋`.agents/hooks.json` |
+| 前置條件 | 開目錄即生效 | 開目錄即生效 | **需先登記為 project** |
+| 指令檔上限 | 無硬限 | 32,768 B（各層加總） | token 預算（與 skills/MCP 共享） |
+
+**在 Codex／Antigravity 工作時沒有 Claude Code 那層 hooks 把關**，更要自律遵守上面的
+「破壞性動作先問」與「機密鐵則」。重活（改核心程式、裁決、對抗驗證）優先留在 Claude Code。
+
+## 漸進式揭露：需要時才讀
+
+| 你要做的事 | 去讀 |
+|---|---|
+| 接手／交接工作 | `.governance/handoff/projects/<專案>.md` |
+| 治理工具用法 | `.governance/README.md` |
+| 未決的判斷題 | `.governance/pending-decisions.md` |
+| 語言特定 lint／測試細則 | `<專案>/.claude/rules/` |
+| 該專案的技術細節 | `<專案>/AGENTS.md` 與其 `docs/` |
